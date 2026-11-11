@@ -26,6 +26,16 @@ struct ApiRegistry {
     providers: BTreeMap<String, ApiConfig>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderInfo {
+    pub id: String,
+    pub name: String,
+    pub endpoint: String,
+    pub model: String,
+    pub authorized_apps: Vec<String>,
+    pub updated_at: u64,
+}
+
 fn timestamp() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
@@ -106,6 +116,32 @@ pub fn authorize(provider: &str, app: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn providers() -> Result<Vec<ProviderInfo>> {
+    let registry = read_registry()?;
+    Ok(registry.providers.into_iter().map(|(id, config)| ProviderInfo {
+        id,
+        name: config.name,
+        endpoint: config.endpoint,
+        model: config.model,
+        authorized_apps: config.authorized_apps.into_iter().collect(),
+        updated_at: config.updated_at,
+    }).collect())
+}
+
+pub fn revoke(provider: &str, app: &str) -> Result<()> {
+    validate_id(provider)?;
+    validate_id(app)?;
+    let mut registry = read_registry()?;
+    let config = registry.providers.get_mut(provider)
+        .ok_or_else(|| anyhow!("API provider '{provider}' is not configured."))?;
+    if config.authorized_apps.remove(app) {
+        config.updated_at = timestamp();
+        write_registry(&registry)?;
+        println!("Application '{app}' access to '{provider}' was revoked.");
+    }
+    Ok(())
+}
+
 pub fn list() -> Result<()> {
     let registry = read_registry()?;
     if registry.providers.is_empty() {
@@ -134,6 +170,45 @@ pub fn resolve(provider: &str, app: &str) -> Result<()> {
 #[cfg(windows)]
 fn credential_entry(provider: &str) -> Result<keyring::Entry> {
     Ok(keyring::Entry::new(CREDENTIAL_SERVICE, &format!("api:{provider}"))?)
+}
+
+pub fn set_key(provider: &str, secret: &str) -> Result<()> {
+    validate_id(provider)?;
+    let registry = read_registry()?;
+    if !registry.providers.contains_key(provider) {
+        bail!("Configure the provider before setting its key.");
+    }
+    let secret = secret.trim();
+    if secret.is_empty() {
+        bail!("The API key cannot be empty.");
+    }
+    #[cfg(windows)]
+    {
+        credential_entry(provider)?.set_password(secret)
+            .context("Could not store the API key in Windows Credential Manager")?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = secret;
+        bail!("Secure API credential storage is currently supported on Windows only.");
+    }
+}
+
+pub fn has_key(provider: &str) -> Result<bool> {
+    validate_id(provider)?;
+    #[cfg(windows)]
+    {
+        match credential_entry(provider)?.get_password() {
+            Ok(_) => Ok(true),
+            Err(keyring::Error::NoEntry) => Ok(false),
+            Err(error) => Err(error).context("Could not query Windows Credential Manager"),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        bail!("Secure API credential storage is currently supported on Windows only.")
+    }
 }
 
 pub fn set_key_from_stdin(provider: &str) -> Result<()> {
