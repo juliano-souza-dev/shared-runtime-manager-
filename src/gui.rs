@@ -36,6 +36,9 @@ fn delete_application(app_id: String) -> Result<(), String> {
 }
 #[tauri::command]
 fn synchronize_application(app_id: String) -> Result<(), String> {
+    if QUEUE_RUNNING.load(Ordering::SeqCst) {
+        return Err("A fila de dependências já está em execução. Aguarde a conclusão antes de sincronizar outro aplicativo.".to_owned());
+    }
     let app = manager::applications().map_err(error_text)?
         .into_iter().find(|item| item.id == app_id)
         .ok_or_else(|| format!("Application '{app_id}' is not registered."))?;
