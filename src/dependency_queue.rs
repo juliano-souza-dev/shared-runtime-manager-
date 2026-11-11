@@ -133,10 +133,11 @@ fn refresh_registered_configs(root: &Path, resolved: &Value) -> Result<()> {
                 app_resolved.insert(id, path.to_owned());
             }
         }
+        let resolved_count = app_resolved.len();
         config["shared"]["resolvedDependencies"] = serde_json::to_value(app_resolved)?;
         config["shared"]["dependencyStatus"] = json!({
             "updatedAt": chrono_placeholder_timestamp(),
-            "resolved": config["shared"]["resolvedDependencies"].as_object().map(|m|m.len()).unwrap_or(0)
+            "resolved": resolved_count
         });
         write_json(&config_path, &config)
             .with_context(|| format!("Could not refresh config for application {app_id}"))?;
