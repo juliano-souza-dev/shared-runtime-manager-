@@ -22,17 +22,18 @@ fn read_json(path: &Path) -> Result<Value> {
     Ok(serde_json::from_slice(&fs::read(path)?)?)
 }
 fn dependencies_for(config: &Value) -> Vec<String> {
-    let values = config.get("dependencies").and_then(Value::as_array)
-        .or_else(|| config.pointer("/shared/dependencies").and_then(Value::as_array));
-    let ids: Vec<String> = values.into_iter().flatten().filter_map(|v| {
-        if v.get("required").and_then(Value::as_bool).unwrap_or(true) {
-            v.get("id").and_then(Value::as_str).map(str::to_owned)
-        } else { None }
-    }).collect();
-    let declared_count = values.map(|items| items.len()).unwrap_or(0);
+    let top = config.get("dependencies").and_then(Value::as_array);
+    let shared = config.pointer("/shared/dependencies").and_then(Value::as_array);
+    let declared_count = top.map(Vec::len).unwrap_or(0) + shared.map(Vec::len).unwrap_or(0);
+    let mut ids = BTreeSet::new();
+    for value in top.into_iter().flatten().chain(shared.into_iter().flatten()) {
+        if value.get("required").and_then(Value::as_bool).unwrap_or(true) {
+            if let Some(id) = value.get("id").and_then(Value::as_str) { ids.insert(id.to_owned()); }
+        }
+    }
     if declared_count == 0 {
         ["ffmpeg","ffprobe","yt-dlp","python","faster-whisper","pyav","whisper-models"].iter().map(|s| s.to_string()).collect()
-    } else { ids }
+    } else { ids.into_iter().collect() }
 }
 
 /// Adds a project to the durable queue without attempting to install dependencies.
@@ -154,13 +155,15 @@ fn refresh_registered_configs(root: &Path, resolved: &Value) -> Result<()> {
     Ok(())
 }
 fn dependencies_for_without_default(config: &Value) -> Vec<String> {
-    config.get("dependencies").and_then(Value::as_array)
-        .or_else(|| config.pointer("/shared/dependencies").and_then(Value::as_array))
-        .into_iter().flatten().filter_map(|v| {
-            if v.get("required").and_then(Value::as_bool).unwrap_or(true) {
-                v.get("id").and_then(Value::as_str).map(str::to_owned)
-            } else { None }
-        }).collect()
+    let top = config.get("dependencies").and_then(Value::as_array);
+    let shared = config.pointer("/shared/dependencies").and_then(Value::as_array);
+    let mut ids = BTreeSet::new();
+    for value in top.into_iter().flatten().chain(shared.into_iter().flatten()) {
+        if value.get("required").and_then(Value::as_bool).unwrap_or(true) {
+            if let Some(id) = value.get("id").and_then(Value::as_str) { ids.insert(id.to_owned()); }
+        }
+    }
+    ids.into_iter().collect()
 }
 fn chrono_placeholder_timestamp() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
