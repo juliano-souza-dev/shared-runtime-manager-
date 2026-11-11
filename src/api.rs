@@ -12,12 +12,12 @@ const API_REGISTRY: &str = "registry/apis.json";
 const CREDENTIAL_SERVICE: &str = "JulianoDev.SharedRuntime.Api";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ApiConfig {
-    name: String,
-    endpoint: String,
-    model: String,
-    authorized_apps: BTreeSet<String>,
-    updated_at: u64,
+pub struct ApiConfig {
+    pub name: String,
+    pub endpoint: String,
+    pub model: String,
+    pub authorized_apps: BTreeSet<String>,
+    pub updated_at: u64,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -180,11 +180,24 @@ pub fn key_status(provider: &str) -> Result<()> {
     }
 }
 
+/// Returns non-secret provider settings only when the application is authorized.
+pub fn get_settings_for_app(provider: &str, app: &str) -> Result<ApiConfig> {
+    validate_id(provider)?;
+    validate_id(app)?;
+    let registry = read_registry()?;
+    let config = registry.providers.get(provider)
+        .ok_or_else(|| anyhow!("API provider '{provider}' is not configured."))?;
+    if !config.authorized_apps.contains(app) {
+        bail!("Application '{app}' is not authorized to use API '{provider}'.");
+    }
+    Ok(config.clone())
+}
+
 // Shared by Windows desktop applications through the same Credential Manager service/account convention.
 // The secret is deliberately never printed by the CLI.
 #[cfg(windows)]
 #[allow(dead_code)]
-pub(crate) fn get_secret_for_app(provider: &str, app: &str) -> Result<String> {
+pub fn get_secret_for_app(provider: &str, app: &str) -> Result<String> {
     validate_id(provider)?;
     validate_id(app)?;
     let registry = read_registry()?;
