@@ -238,3 +238,32 @@ cargo run --release --features desktop --bin srm-gui
 The GUI feature is optional, so the existing CLI and its CI checks remain independent of the desktop runtime. The desktop interface currently targets Windows because protected API credential storage is Windows-only. API keys are entered into a password field and passed directly to the native credential store; they are never returned to the UI or written to the shared JSON registry.
 
 The first desktop release is a local management interface, not a background Windows service. Application discovery, signed app identity, compatibility approvals, update coordination, and a brokered SDK/IPC remain separate roadmap items.
+
+
+## Application dependency contract and first registration
+
+When an application is registered with an absolute path, the CLI and desktop interface read its root-level `shared.config.json` and provision the dependencies declared there. If the `dependencies` array is absent, Shared writes this default contract:
+
+```json
+{
+  "dependencies": [
+    { "id": "ffmpeg", "required": true },
+    { "id": "ffprobe", "required": true },
+    { "id": "yt-dlp", "required": true },
+    { "id": "python", "required": true },
+    { "id": "faster-whisper", "required": true },
+    { "id": "pyav", "required": true },
+    { "id": "whisper-models", "required": true }
+  ]
+}
+```
+
+The dependency IDs are independent. FFmpeg and FFprobe may arrive in the same archive, but each is checked and recorded separately. An already available executable on PATH or an existing Shared installation is reused. Python packages are checked by importing their module before pip is invoked. Existing versions are not compared, upgraded, replaced, or duplicated by Shared.
+
+Provisioned shared dependency paths are written to `shared.dependencies`. Application-owned directories are created below the application's own `data/` directory and exposed as `application.data`: `projects`, `database`, `sounds`, `logs`, and `user-files`. These directories are never shared between applications.
+
+Groq is a cloud provider, not a downloadable local dependency. Its non-secret settings remain in `registry/apis.json`; API credentials remain in Windows Credential Manager.
+
+Python is reused when present. On Windows, if Python is missing and Windows Package Manager is available, Shared requests Python 3.12 through winget. Missing Faster-Whisper and PyAV Python packages are installed into the selected Python environment only after import checks show they are absent.
+
+The `whisper-models` dependency currently provisions the shared model-storage directory. Actual model weights are downloaded by the consuming application's model-selection/loading flow, because the application must choose which Whisper model size it needs. Shared does not guess a model size or download every model variant.
