@@ -22,7 +22,7 @@ document.querySelectorAll(".nav").forEach(x=>x.addEventListener("click",()=>page
 document.querySelectorAll("[data-go]").forEach(x=>x.addEventListener("click",()=>page(x.dataset.go)));
 $("refresh").onclick=load;$("add-app").onclick=()=>$("app-dialog").showModal();$("add-api").onclick=()=>$("api-dialog").showModal();
 document.querySelectorAll("[data-close]").forEach(x=>x.onclick=() => $(x.dataset.close).close());
-$("app-form").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);await act("register_application",{appId:f.get("app_id"),name:f.get("name")},"Aplicativo cadastrado.");$("app-dialog").close();e.currentTarget.reset()};
+$("app-form").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);await act("register_application",{appId:f.get("app_id"),name:f.get("name"),installationPath:f.get("installation_path")},"Aplicativo cadastrado e arquivo shared.config.json configurado.");$("app-dialog").close();e.currentTarget.reset()};
 $("api-form").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);await act("save_api_provider",{provider:f.get("provider"),name:f.get("name"),endpoint:f.get("endpoint"),model:f.get("model")},"Provedor salvo.");$("api-dialog").close();e.currentTarget.reset()};
 $("key-form").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);await act("save_api_key",{provider:f.get("provider"),secret:f.get("secret")},"Chave enviada ao Gerenciador de Credenciais do Windows.");$("key-dialog").close();e.currentTarget.reset()};
 $("grant-form").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);await act("authorize_api",{provider:f.get("provider"),appId:f.get("app_id")},"Permissão concedida.");$("grant-dialog").close()};
