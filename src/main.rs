@@ -58,7 +58,11 @@ fn main() -> Result<()> {
             ApiCommand::KeyStatus { provider } => api::key_status(&provider),
         },
         Command::ProcessQueue => dependency_queue::process_queue(),
-        Command::QueueStatus => {\n            println!("{}", serde_json::to_string_pretty(&dependency_queue::status()?)?);\n            Ok(())\n        },\n        Command::Root => {
+        Command::QueueStatus => {
+            println!("{}", serde_json::to_string_pretty(&dependency_queue::status()?)?);
+            Ok(())
+        },
+        Command::Root => {
             println!("{}", manager::root()?.display());
             Ok(())
         }
