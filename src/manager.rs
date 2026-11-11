@@ -28,6 +28,8 @@ struct Registry {
 struct Application {
     name: String,
     registered_at: u64,
+    #[serde(default)]
+    installation_path: String,
     resources: Vec<String>,
 }
 
@@ -45,6 +47,8 @@ pub struct ApplicationInfo {
     pub id: String,
     pub name: String,
     pub registered_at: u64,
+    pub installation_path: String,
+    pub config_path: String,
     pub resources: Vec<String>,
 }
 
@@ -173,6 +177,7 @@ pub fn register_app(app_id: &str, name: &str) -> Result<()> {
                 Application {
                     name: name.trim().to_owned(),
                     registered_at: timestamp(),
+                    installation_path: String::new(),
                     resources: Vec::new(),
                 },
             );
@@ -183,6 +188,107 @@ pub fn register_app(app_id: &str, name: &str) -> Result<()> {
     Ok(())
 }
 
+
+/// Register an application and provision its root-level Shared configuration file.
+pub fn register_app_at_path(app_id: &str, name: &str, installation_path: &str) -> Result<()> {
+    validate_id(app_id)?;
+    if name.trim().is_empty() {
+        bail!("Application name cannot be empty.");
+    }
+    let requested_path = PathBuf::from(installation_path.trim());
+    if !requested_path.is_absolute() {
+        bail!("Application installation path must be absolute.");
+    }
+    if !requested_path.is_dir() {
+        bail!("Application installation directory does not exist: {}", requested_path.display());
+    }
+    let canonical_path = requested_path.canonicalize()
+        .with_context(|| format!("Could not resolve application directory: {}", requested_path.display()))?;
+    let base = ensure_layout()?;
+    let _lock = lock_registry(&base)?;
+    let mut registry = read_registry(&base)?;
+    let app = registry.applications.entry(app_id.to_owned()).or_insert_with(|| Application {
+        name: name.trim().to_owned(),
+        registered_at: timestamp(),
+        installation_path: canonical_path.display().to_string(),
+        resources: Vec::new(),
+    });
+    app.name = name.trim().to_owned();
+    app.installation_path = canonical_path.display().to_string();
+    write_registry(&base, &registry)?;
+    write_application_config(&base, app_id, app)?;
+    println!("Application registered and configured: {app_id} ({})", name.trim());
+    println!("Configuration: {}", canonical_path.join("shared.config.json").display());
+    Ok(())
+}
+
+fn write_application_config(shared_root: &Path, app_id: &str, app: &Application) -> Result<()> {
+    if app.installation_path.is_empty() {
+        return Ok(());
+    }
+    let app_root = PathBuf::from(&app.installation_path);
+    if !app_root.is_dir() {
+        bail!("Registered application directory is no longer available: {}", app_root.display());
+    }
+    let config_path = app_root.join("shared.config.json");
+    let mut document: serde_json::Value = if config_path.exists() {
+        let bytes = fs::read(&config_path)
+            .with_context(|| format!("Could not read existing {}", config_path.display()))?;
+        serde_json::from_slice(&bytes)
+            .with_context(|| format!("Existing {} contains invalid JSON; refusing to overwrite it", config_path.display()))?
+    } else {
+        serde_json::json!({})
+    };
+    if !document.is_object() {
+        bail!("{} must contain a JSON object at its root.", config_path.display());
+    }
+
+    let resource_registry = read_registry(shared_root)?;
+    let installed_resources: BTreeMap<String, String> = resource_registry.resources.iter()
+        .map(|(id, resource)| (id.clone(), resource.install_path.clone()))
+        .collect();
+
+    let mut application = document.get("application").cloned()
+        .filter(|value| value.is_object()).unwrap_or_else(|| serde_json::json!({}));
+    application["id"] = serde_json::Value::String(app_id.to_owned());
+    application["name"] = serde_json::Value::String(app.name.clone());
+
+    let shared = serde_json::json!({
+        "enabled": true,
+        "root": shared_root.display().to_string(),
+        "directories": {
+            "tools": shared_root.join("tools").display().to_string(),
+            "runtimes": shared_root.join("runtimes").display().to_string(),
+            "models": shared_root.join("models").display().to_string(),
+            "cache": shared_root.join("cache").display().to_string(),
+            "registry": shared_root.join("registry").display().to_string()
+        },
+        "files": {
+            "applications": shared_root.join(REGISTRY_FILE).display().to_string(),
+            "apiProviders": shared_root.join("registry/apis.json").display().to_string()
+        },
+        "resources": installed_resources
+    });
+
+    document["schemaVersion"] = serde_json::Value::String("1.0".to_owned());
+    document["application"] = application;
+    document["shared"] = shared;
+
+    let temporary = config_path.with_extension("json.tmp");
+    let bytes = serde_json::to_vec_pretty(&document)?;
+    {
+        let mut file = File::create(&temporary)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+    }
+    if config_path.exists() {
+        fs::remove_file(&config_path)?;
+    }
+    fs::rename(&temporary, &config_path)
+        .with_context(|| format!("Could not replace {}", config_path.display()))?;
+    Ok(())
+}
+
 pub fn applications() -> Result<Vec<ApplicationInfo>> {
     let base = ensure_layout()?;
     let registry = read_registry(&base)?;
@@ -190,6 +296,8 @@ pub fn applications() -> Result<Vec<ApplicationInfo>> {
         id,
         name: app.name,
         registered_at: app.registered_at,
+        installation_path: app.installation_path.clone(),
+        config_path: if app.installation_path.is_empty() { String::new() } else { PathBuf::from(&app.installation_path).join("shared.config.json").display().to_string() },
         resources: app.resources,
     }).collect())
 }
