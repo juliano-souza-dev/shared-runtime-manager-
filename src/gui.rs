@@ -22,8 +22,8 @@ fn dashboard_data() -> Result<Dashboard, String> {
     })
 }
 #[tauri::command]
-fn register_application(app_id: String, name: String) -> Result<(), String> {
-    manager::register_app(&app_id, &name).map_err(error_text)
+fn register_application(app_id: String, name: String, installation_path: String) -> Result<(), String> {
+    manager::register_app_at_path(&app_id, &name, &installation_path).map_err(error_text)
 }
 #[tauri::command]
 fn install_shared_resource(resource: String, app_id: Option<String>) -> Result<(), String> {
