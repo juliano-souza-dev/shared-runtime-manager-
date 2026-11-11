@@ -24,7 +24,7 @@ enum Command {
     Apps,
     /// Install or update a managed shared resource.
     Install {
-        /// Resource identifier. Currently supported: ffmpeg.
+        /// Resource identifier. Currently supported: ffmpeg, sox (Windows).
         resource: String,
         /// Application that should be linked to this resource.
         #[arg(long)]
