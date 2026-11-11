@@ -1,6 +1,6 @@
 const invoke=window.__TAURI__?.core?.invoke,$=id=>document.getElementById(id);
 let state={applications:[],resources:[],providers:[],root:"",catalog:[]};
-const titles={overview:"Visão geral",apps:"Aplicativos",apis:"Provedores de API",resources:"Recursos compartilhados"};
+const titles={overview:"Visão geral",apps:"Aplicativos",apis:"Provedores de API",resources:"Biblioteca de dependências"};
 function note(message,error=false){const n=$("notice");n.textContent=message;n.classList.remove("hidden","error");if(error)n.classList.add("error");clearTimeout(note.timer);note.timer=setTimeout(()=>n.classList.add("hidden"),6500)}
 async function act(command,args={},message){try{await invoke(command,args);if(message)note(message);await load()}catch(e){note(String(e),true);throw e}}
 function esc(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
@@ -19,7 +19,7 @@ function render(){
  $("apps-list").innerHTML=state.applications.length?state.applications.map(a=>'<article class="entity"><div class="entity-head"><div><div class="entity-name">'+esc(a.name)+'</div><div class="entity-id">'+esc(a.id)+'</div></div><button class="small-btn danger" data-delete-app="'+esc(a.id)+'">Excluir vínculo</button></div><div class="meta">Cadastrado em '+new Date(a.registered_at*1000).toLocaleDateString()+' · '+a.resources.length+' recurso(s) vinculado(s)<br>Instalação: '+esc(a.installation_path||"Caminho não configurado")+'<br>Configuração: '+esc(a.config_path||"Ainda não gerada")+'</div><div class="chips">'+(a.resources.length?a.resources.map(r=>'<span class="chip">'+esc(r)+'</span>').join(""):'<span class="chip">Nenhum recurso vinculado</span>')+'</div></article>').join(""):empty("Cadastre seu primeiro aplicativo.");
  $("apis-list").innerHTML=state.providers.length?state.providers.map(p=>'<article class="entity"><div class="entity-head"><div><div class="entity-name">'+esc(p.name)+'</div><div class="entity-id">'+esc(p.id)+' · '+esc(p.model)+'</div><div class="meta">'+esc(p.endpoint)+'</div></div><div class="entity-actions"><button class="small-btn" data-key="'+esc(p.id)+'">Atualizar chave</button><button class="small-btn" data-models="'+esc(p.id)+'">↻ Modelos</button><button class="small-btn" data-grant="'+esc(p.id)+'">＋ Autorizar</button></div></div><div class="chips">'+(p.authorized_apps.length?p.authorized_apps.map(a=>'<span class="chip good">'+esc(a)+' <button data-provider="'+esc(p.id)+'" data-app="'+esc(a)+'" title="Revogar" style="border:0;background:none;color:inherit;cursor:pointer">×</button></span>').join(""):'<span class="chip">Sem aplicativos autorizados</span>')+'</div></article>').join(""):empty("Nenhum provedor cadastrado.");
  $("resources-list").innerHTML=state.resources.length?state.resources.map(r=>'<article class="entity"><div class="entity-name">'+esc(r.id.toUpperCase())+'</div><div class="meta">Versão: '+esc(r.version)+'<br>Local: '+esc(r.install_path)+'</div></article>').join(""):empty("Nenhum recurso instalado.");
- $("resource-app").innerHTML='<option value="">Sem vínculo específico</option>'+appOpts();
+
 }
 document.querySelectorAll(".nav").forEach(x=>x.addEventListener("click",()=>page(x.dataset.page)));
 document.querySelectorAll("[data-go]").forEach(x=>x.addEventListener("click",()=>page(x.dataset.go)));
