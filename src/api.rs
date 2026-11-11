@@ -115,15 +115,16 @@ pub fn available_models(provider: &str) -> Result<Vec<String>> {
             "anthropic" => {
                 request = request
                     .header("x-api-key", &secret)
-                    .header("anthropic-version", "2023-06-01");
+                    .header("anthropic-version", "2026-10-21");
             }
             _ => { request = request.bearer_auth(&secret); }
         }
-        let response: serde_json::Value = request.send()
+        let response = request.send()
             .with_context(|| format!("Could not contact {provider} models endpoint"))?
             .error_for_status()
-            .with_context(|| format!("{provider} rejected the models request; check the API key and account access"))?
-            .json()?;
+            .with_context(|| format!("{provider} rejected the models request; check the API key and account access"))?;
+        let body = response.bytes()?;
+        let response: serde_json::Value = serde_json::from_slice(&body)?;
         let entries = response.get("data").or_else(|| response.get("models"))
             .and_then(serde_json::Value::as_array)
             .ok_or_else(|| anyhow!("Unexpected models response from {provider}."))?;
