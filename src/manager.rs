@@ -357,6 +357,11 @@ pub fn applications() -> Result<Vec<ApplicationInfo>> {
                     if let Some(resolved) = config.pointer("/shared/resolvedDependencies").and_then(serde_json::Value::as_object) {
                         linked.extend(resolved.keys().cloned());
                     }
+                    let declared = config.get("dependencies").and_then(serde_json::Value::as_array)
+                        .or_else(|| config.pointer("/shared/dependencies").and_then(serde_json::Value::as_array));
+                    linked.extend(declared.into_iter().flatten().filter_map(|entry| {
+                        entry.get("id").and_then(serde_json::Value::as_str).map(str::to_owned)
+                    }));
                 }
             }
         }
