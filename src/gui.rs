@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use serde::Serialize;
-use shared_runtime_manager::{api, manager};
+use shared_runtime_manager::{api, dependency_manager, manager};
 
 #[derive(Serialize)]
 struct Dashboard {
@@ -23,7 +23,8 @@ fn dashboard_data() -> Result<Dashboard, String> {
 }
 #[tauri::command]
 fn register_application(app_id: String, name: String, installation_path: String) -> Result<(), String> {
-    manager::register_app_at_path(&app_id, &name, &installation_path).map_err(error_text)
+    manager::register_app_at_path(&app_id, &name, &installation_path).map_err(error_text)?;
+    dependency_manager::provision_application(&app_id, &installation_path).map_err(error_text)
 }
 #[tauri::command]
 fn install_shared_resource(resource: String, app_id: Option<String>) -> Result<(), String> {
