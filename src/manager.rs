@@ -264,12 +264,15 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
     application["name"] = serde_json::Value::String(app.name.clone());
 
     // Application-owned declarations must survive every Shared refresh.
-    let mut shared = document.get("shared").cloned()
-        .filter(|value| value.is_object()).unwrap_or_else(|| serde_json::json!({}));
-    if !shared.get("dependencies").is_some_and(serde_json::Value::is_array) {
+    let mut shared = match document.get("shared") {
+        Some(value) if value.is_object() => value.clone(),
+        Some(_) => bail!("{} has an invalid 'shared' section; refusing to replace application declarations.", config_path.display()),
+        None => serde_json::json!({}),
+    };
+    if !shared.as_object().is_some_and(|object| object.contains_key("dependencies")) {
         shared["dependencies"] = serde_json::json!([]);
     }
-    if !shared.get("providers").is_some_and(serde_json::Value::is_array) {
+    if !shared.as_object().is_some_and(|object| object.contains_key("providers")) {
         shared["providers"] = serde_json::json!([]);
     }
     validate_declarations(&shared, "dependencies")?;
