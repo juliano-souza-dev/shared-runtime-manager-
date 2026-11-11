@@ -37,11 +37,12 @@ $("app-form").onsubmit=async e=>{
    status=await invoke("dependency_queue_status");
    const p=Number(status.progress||0);
    setRegistrationProgress(15+p*.85,status.status==="completed"?"Processamento concluído":"Instalando dependências",status.current||"Aguardando...");
-   if(status.status==="completed")break;
+   if(status.status==="completed"||status.status==="error")break;
    await delay(500);
   }
-  if(!status||status.status!=="completed")throw new Error("O processamento ainda está em andamento. Consulte os resultados na tela de Aplicativos.");
+  if(!status||!["completed","error"].includes(status.status))throw new Error("O processamento ainda está em andamento. Consulte os resultados na tela de Aplicativos.");
   showQueueResults(status);await load();form.reset();
+  if(status.status==="error"){note("O projeto foi cadastrado, mas a fila encontrou um erro: "+(status.error||"erro desconhecido"),true);$("app-dialog").close();return}
   const failed=(status.results||[]).filter(x=>x.status!=="installed").length;
   note(failed?("Projeto cadastrado. "+failed+" dependência(s) falharam e podem ser revisadas nos resultados."):"Projeto cadastrado e dependências processadas com sucesso.",failed>0);
   $("app-dialog").close();
