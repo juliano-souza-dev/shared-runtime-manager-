@@ -75,7 +75,7 @@ pub fn enqueue_application(app_id: &str, installation_path: &str) -> Result<()> 
 pub fn process_queue() -> Result<()> {
     let _guard = QUEUE_LOCK.lock().map_err(|_| anyhow::anyhow!("Dependency queue is busy"))?;
     let root = root()?;
-    let mut queue = read_json(&queue_path(&root))?;
+    let queue = read_json(&queue_path(&root))?;
     let items = queue.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
     let mut unique = BTreeSet::new();
     for item in &items {
@@ -131,7 +131,7 @@ fn refresh_registered_configs(root: &Path, resolved: &Value) -> Result<()> {
         if installation.is_empty() { continue; }
         let config_path = PathBuf::from(installation).join("shared.config.json");
         if !config_path.is_file() { continue; }
-        let mut config: Value = match serde_json::from_slice(&fs::read(&config_path)?) {
+        let mut config: Value = match serde_json::from_slice::<Value>(&fs::read(&config_path)?) {
             Ok(value) if value.is_object() => value,
             _ => continue,
         };
