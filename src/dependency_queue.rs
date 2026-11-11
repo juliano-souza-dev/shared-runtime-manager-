@@ -18,7 +18,7 @@ fn write_json(path: &Path, value: &Value) -> Result<()> {
     Ok(())
 }
 fn read_json(path: &Path) -> Result<Value> {
-    if !path.exists() { return Ok(json!({})); }
+    if !path.exists() { return Ok(json!({"items":[]})); }
     Ok(serde_json::from_slice(&fs::read(path)?)?)
 }
 fn dependencies_for(config: &Value) -> Vec<String> {
@@ -42,6 +42,10 @@ pub fn enqueue_application(app_id: &str, installation_path: &str) -> Result<()> 
     let config: Value = serde_json::from_slice(&fs::read(&config_path)
         .with_context(|| format!("Could not read {}", config_path.display()))?)?;
     let dependencies = dependencies_for(&config);
+    let mut config = config;
+    config["dependencies"] = Value::Array(dependencies.iter().map(|id| json!({"id":id,"required":true})).collect());
+    config["shared"]["dependencies"] = config["dependencies"].clone();
+    write_json(&config_path, &config)?;
     let path = queue_path(&root);
     let mut queue = read_json(&path)?;
     let items = queue.get_mut("items").and_then(Value::as_array_mut);
@@ -153,4 +157,15 @@ fn chrono_placeholder_timestamp() -> u64 {
 pub fn status() -> Result<Value> {
     let root = root()?;
     read_json(&status_path(&root))
+}
+
+pub fn remove_application(app_id: &str) -> Result<()> {
+    let root = root()?;
+    let path = queue_path(&root);
+    let mut queue = read_json(&path)?;
+    if let Some(items) = queue.get_mut("items").and_then(Value::as_array_mut) {
+        items.retain(|item| item.get("app_id").and_then(Value::as_str) != Some(app_id));
+    }
+    write_json(&path, &queue)?;
+    Ok(())
 }
