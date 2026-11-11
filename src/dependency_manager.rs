@@ -288,12 +288,20 @@ pub fn provision_application(app_id: &str, installation_path: &str) -> Result<()
         bail!("shared.config.json root must be a JSON object.");
     }
 
-    if !config.get("dependencies").is_some_and(Value::is_array) {
-        config["dependencies"] = default_contract()["dependencies"].clone();
-    }
+    let declared = config.get("dependencies")
+        .and_then(Value::as_array)
+        .cloned()
+        .or_else(|| config.get("shared")
+            .and_then(|shared| shared.get("dependencies"))
+            .and_then(Value::as_array)
+            .filter(|items| !items.is_empty())
+            .cloned())
+        .unwrap_or_else(|| default_contract()["dependencies"].as_array().unwrap().clone());
 
-    let dependencies = config["dependencies"].as_array()
-        .ok_or_else(|| anyhow!("The dependencies field must be an array."))?.clone();
+    // Keep the public root contract and the Shared-owned declaration section in sync.
+    config["dependencies"] = Value::Array(declared.clone());
+    config["shared"]["dependencies"] = Value::Array(declared.clone());
+    let dependencies = declared;
 
     let root = shared_root()?;
     for directory in ["tools", "runtimes", "models", "cache", "registry"] {
@@ -322,7 +330,7 @@ pub fn provision_application(app_id: &str, installation_path: &str) -> Result<()
         app_data.insert(name.to_owned(), directory.to_string_lossy().into_owned());
     }
 
-    config["shared"]["dependencies"] = serde_json::to_value(resolved)?;
+    config["shared"]["resolvedDependencies"] = serde_json::to_value(resolved)?;
     config["application"]["data"] = serde_json::to_value(app_data)?;
     atomic_write(&config_path, &config)?;
 
