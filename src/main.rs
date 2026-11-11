@@ -16,6 +16,9 @@ enum Command {
         app_id: String,
         #[arg(long)]
         name: String,
+        /// Absolute path to the application's installation directory.
+        #[arg(long)]
+        path: String,
     },
     /// List registered applications.
     Apps,
@@ -81,7 +84,7 @@ enum ApiCommand {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Register { app_id, name } => manager::register_app(&app_id, &name),
+        Command::Register { app_id, name, path } => manager::register_app_at_path(&app_id, &name, &path),
         Command::Apps => manager::list_apps(),
         Command::Install { resource, app } => manager::install(&resource, app.as_deref()),
         Command::Resources => manager::list_resources(),
