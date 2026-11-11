@@ -42,6 +42,7 @@ fn synchronize_application(app_id: String) -> Result<(), String> {
     if app.installation_path.is_empty() {
         return Err(format!("Application '{app_id}' has no installation path."));
     }
+    manager::register_app_at_path(&app.id, &app.name, &app.installation_path).map_err(error_text)?;
     dependency_queue::enqueue_application(&app_id, &app.installation_path).map_err(error_text)?;
     start_dependency_queue()
 }
