@@ -73,6 +73,27 @@ fn command_exists(command: &str) -> bool {
     command_output(command, "path").is_some()
 }
 
+fn find_existing_binary(directory: &Path, filename: &str) -> Result<Option<PathBuf>> {
+    if !directory.is_dir() {
+        return Ok(None);
+    }
+    for entry in fs::read_dir(directory)? {
+        let path = entry?.path();
+        let name = path.file_name().and_then(|value| value.to_str()).unwrap_or("");
+        if name.starts_with(".staging") || name.contains(".backup-") {
+            continue;
+        }
+        if path.is_dir() {
+            if let Some(found) = find_existing_binary(&path, filename)? {
+                return Ok(Some(found));
+            }
+        } else if name.eq_ignore_ascii_case(filename) {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
 fn find_python() -> Option<String> {
     for candidate in ["python", "python3", "py"] {
         if command_exists(candidate) {
@@ -175,6 +196,11 @@ fn ensure_ffmpeg_component(root: &Path, id: &str, executable: &str) -> Result<Pa
         return Ok(path.parent().unwrap_or(Path::new(".")).to_path_buf());
     }
 
+    if let Some(existing) = find_existing_binary(&root.join("tools"), executable)? {
+        println!("{id} already exists in the Shared tools directory; keeping the existing installation.");
+        return Ok(existing.parent().unwrap_or(Path::new(".")).to_path_buf());
+    }
+
     let directory = root.join("tools").join(id);
     let target = directory.join(executable);
     if target.is_file() {
@@ -211,6 +237,10 @@ fn ensure_yt_dlp(root: &Path) -> Result<PathBuf> {
     }
     let directory = root.join("tools/yt-dlp");
     let executable = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" };
+    if let Some(existing) = find_existing_binary(&root.join("tools"), executable)? {
+        println!("yt-dlp already exists in the Shared tools directory; keeping the existing installation.");
+        return Ok(existing.parent().unwrap_or(Path::new(".")).to_path_buf());
+    }
     let target = directory.join(executable);
     if target.is_file() {
         println!("yt-dlp already exists; keeping the existing installation.");
