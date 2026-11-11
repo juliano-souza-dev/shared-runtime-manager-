@@ -356,12 +356,33 @@ pub fn applications() -> Result<Vec<ApplicationInfo>> {
 pub fn resources() -> Result<Vec<ResourceInfo>> {
     let base = ensure_layout()?;
     let registry = read_registry(&base)?;
-    Ok(registry.resources.into_iter().map(|(id, resource)| ResourceInfo {
-        id,
-        version: resource.version,
-        install_path: resource.install_path,
-        installed_at: resource.installed_at,
-    }).collect())
+    let mut installed: BTreeMap<String, ResourceInfo> = registry.resources.into_iter()
+        .filter_map(|(id, resource)| {
+            let path = PathBuf::from(&resource.install_path);
+            path.exists().then_some((id.clone(), ResourceInfo {
+                id, version: resource.version, install_path: resource.install_path,
+                installed_at: resource.installed_at,
+            }))
+        }).collect();
+
+    // Include dependencies provisioned by the asynchronous shared queue, regardless
+    // of which application originally requested them.
+    let resolved_path = base.join("registry/resolved-dependencies.json");
+    if resolved_path.is_file() {
+        let resolved: serde_json::Value = serde_json::from_slice(&fs::read(&resolved_path)?)
+            .context("Resolved dependency registry contains invalid JSON")?;
+        if let Some(entries) = resolved.as_object() {
+            for (id, value) in entries {
+                let Some(path) = value.as_str() else { continue; };
+                if !Path::new(path).exists() { continue; }
+                installed.entry(id.clone()).or_insert_with(|| ResourceInfo {
+                    id: id.clone(), version: "Compartilhado".to_owned(),
+                    install_path: path.to_owned(), installed_at: 0,
+                });
+            }
+        }
+    }
+    Ok(installed.into_values().collect())
 }
 
 pub fn list_apps() -> Result<()> {
