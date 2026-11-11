@@ -114,7 +114,7 @@ pub fn available_models(provider: &str) -> Result<Vec<String>> {
             "query" => { request = request.query(&[("key", secret.as_str())]); }
             "anthropic" => {
                 request = request
-                    .header("x-api-key", &secret)
+                    .header("x-api-key", secret.as_str())
                     .header("anthropic-version", "2026-10-21");
             }
             _ => { request = request.bearer_auth(&secret); }
