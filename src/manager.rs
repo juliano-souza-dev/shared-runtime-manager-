@@ -24,7 +24,7 @@ struct Registry {
     resources: BTreeMap<String, Resource>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Application {
     name: String,
     registered_at: u64,
@@ -215,8 +215,9 @@ pub fn register_app_at_path(app_id: &str, name: &str, installation_path: &str) -
     });
     app.name = name.trim().to_owned();
     app.installation_path = canonical_path.display().to_string();
+    let app_snapshot = app.clone();
     write_registry(&base, &registry)?;
-    write_application_config(&base, app_id, app)?;
+    write_application_config(&base, app_id, &app_snapshot)?;
     println!("Application registered and configured: {app_id} ({})", name.trim());
     println!("Configuration: {}", canonical_path.join("shared.config.json").display());
     Ok(())
