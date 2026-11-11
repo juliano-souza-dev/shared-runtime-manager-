@@ -800,3 +800,26 @@ mod tests {
         assert_eq!(decoded.applications["ttk-media"].resources, vec!["sox"]);
     }
 }
+
+
+/// Unregisters a project from Shared Runtime without deleting the project directory or user data.
+/// Only the generated shared.config.json is removed.
+pub fn unregister_application(app_id: &str) -> Result<()> {
+    validate_id(app_id)?;
+    let base = ensure_layout()?;
+    let _lock = lock_registry(&base)?;
+    let mut registry = read_registry(&base)?;
+    let app = registry.applications.remove(app_id)
+        .ok_or_else(|| anyhow!("Application '{app_id}' is not registered."))?;
+    write_registry(&base, &registry)?;
+    if !app.installation_path.is_empty() {
+        let config = PathBuf::from(&app.installation_path).join("shared.config.json");
+        if config.is_file() {
+            fs::remove_file(&config)
+                .with_context(|| format!("Could not remove generated config {}", config.display()))?;
+        }
+    }
+    refresh_application_configs(&base)?;
+    println!("Application unregistered: {app_id}. Project files were preserved.");
+    Ok(())
+}
