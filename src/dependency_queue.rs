@@ -24,7 +24,7 @@ fn read_json(path: &Path) -> Result<Value> {
 fn dependencies_for(config: &Value) -> Vec<String> {
     let top = config.get("dependencies").and_then(Value::as_array);
     let shared = config.pointer("/shared/dependencies").and_then(Value::as_array);
-    let declared_count = top.map(Vec::len).unwrap_or(0) + shared.map(Vec::len).unwrap_or(0);
+    let declared_count = top.map(|items| items.len()).unwrap_or(0) + shared.map(|items| items.len()).unwrap_or(0);
     let mut ids = BTreeSet::new();
     for value in top.into_iter().flatten().chain(shared.into_iter().flatten()) {
         if value.get("required").and_then(Value::as_bool).unwrap_or(true) {
