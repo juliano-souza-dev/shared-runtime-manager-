@@ -59,9 +59,9 @@
       "auth": "anthropic",
       "keyUrl": "https://platform.claude.com/settings/keys",
       "docsUrl": "https://platform.claude.com/docs/en/api/overview",
-      "defaultModel": "claude-sonnet-4-5",
+      "defaultModel": "claude-opus-5-5",
       "models": [
-        "claude-opus-4-5",
+        "claude-opus-5-5",
         "claude-sonnet-4-5",
         "claude-haiku-4-5"
       ]
@@ -74,8 +74,9 @@
       "auth": "query",
       "keyUrl": "https://aistudio.google.com/app/apikey",
       "docsUrl": "https://ai.google.dev/api/models",
-      "defaultModel": "gemini-2.5-flash",
+      "defaultModel": "gemini-3.1-pro-preview",
       "models": [
+        "gemini-3.1-pro-preview",
         "gemini-2.5-pro",
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite"
@@ -89,10 +90,10 @@
       "auth": "bearer",
       "keyUrl": "https://platform.deepseek.com/api_keys",
       "docsUrl": "https://api-docs.deepseek.com/api/list-models/",
-      "defaultModel": "deepseek-chat",
+      "defaultModel": "deepseek-flash",
       "models": [
-        "deepseek-chat",
-        "deepseek-reasoner"
+        "deepseek-flash",
+        "deepseek-v4-pro"
       ]
     },
     {
