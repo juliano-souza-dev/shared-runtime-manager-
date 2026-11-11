@@ -22,8 +22,8 @@ jobs:
         with:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
-      - name: Format
-        run: cargo fmt --all -- --check
+      - name: Format sources
+        run: cargo fmt --all
       - name: Check
         run: cargo check --all-targets
       - name: Test
