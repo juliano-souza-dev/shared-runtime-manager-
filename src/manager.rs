@@ -374,7 +374,7 @@ pub fn resources() -> Result<Vec<ResourceInfo>> {
         if let Some(entries) = resolved.as_object() {
             for (id, value) in entries {
                 let Some(path) = value.as_str() else { continue; };
-                if !Path::new(path).exists() { continue; }
+                if Path::new(path).is_absolute() && !Path::new(path).exists() { continue; }
                 installed.entry(id.clone()).or_insert_with(|| ResourceInfo {
                     id: id.clone(), version: "Compartilhado".to_owned(),
                     install_path: path.to_owned(), installed_at: 0,
