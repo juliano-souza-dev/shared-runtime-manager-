@@ -343,14 +343,35 @@ fn validate_declarations(shared: &serde_json::Value, field: &str) -> Result<()> 
 pub fn applications() -> Result<Vec<ApplicationInfo>> {
     let base = ensure_layout()?;
     let registry = read_registry(&base)?;
-    Ok(registry.applications.into_iter().map(|(id, app)| ApplicationInfo {
-        id,
-        name: app.name,
-        registered_at: app.registered_at,
-        installation_path: app.installation_path.clone(),
-        config_path: if app.installation_path.is_empty() { String::new() } else { PathBuf::from(&app.installation_path).join("shared.config.json").display().to_string() },
-        resources: app.resources,
-    }).collect())
+    let mut output = Vec::new();
+    for (id, app) in registry.applications {
+        let config_path = if app.installation_path.is_empty() {
+            String::new()
+        } else {
+            PathBuf::from(&app.installation_path).join("shared.config.json").display().to_string()
+        };
+        let mut linked = app.resources.clone();
+        if !config_path.is_empty() {
+            if let Ok(bytes) = fs::read(&config_path) {
+                if let Ok(config) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    if let Some(resolved) = config.pointer("/shared/resolvedDependencies").and_then(serde_json::Value::as_object) {
+                        linked.extend(resolved.keys().cloned());
+                    }
+                }
+            }
+        }
+        linked.sort();
+        linked.dedup();
+        output.push(ApplicationInfo {
+            id,
+            name: app.name,
+            registered_at: app.registered_at,
+            installation_path: app.installation_path,
+            config_path,
+            resources: linked,
+        });
+    }
+    Ok(output)
 }
 
 pub fn resources() -> Result<Vec<ResourceInfo>> {
@@ -383,6 +404,91 @@ pub fn resources() -> Result<Vec<ResourceInfo>> {
         }
     }
     Ok(installed.into_values().collect())
+}
+
+/// Removes a centrally managed dependency only when no registered application declares it.
+pub fn delete_resource(resource_id: &str) -> Result<()> {
+    validate_id(resource_id)?;
+    let base = ensure_layout()?;
+    let _lock = lock_registry(&base)?;
+    let mut registry = read_registry(&base)?;
+
+    let mut users = Vec::new();
+    for (app_id, app) in &registry.applications {
+        if app.installation_path.is_empty() { continue; }
+        let config_path = PathBuf::from(&app.installation_path).join("shared.config.json");
+        let Ok(bytes) = fs::read(&config_path) else { continue; };
+        let Ok(config) = serde_json::from_slice::<serde_json::Value>(&bytes) else { continue; };
+        let declared = config.get("dependencies").and_then(serde_json::Value::as_array)
+            .or_else(|| config.pointer("/shared/dependencies").and_then(serde_json::Value::as_array));
+        let in_use = declared.into_iter().flatten().any(|entry| {
+            entry.get("id").and_then(serde_json::Value::as_str) == Some(resource_id)
+        });
+        if in_use { users.push(format!("{} ({})", app.name, app_id)); }
+    }
+    if !users.is_empty() {
+        bail!("Cannot delete dependency '{resource_id}'. It is still declared by: {}. Remove the dependency from those applications and synchronize them first.", users.join(", "));
+    }
+
+    let resolved_path = base.join("registry/resolved-dependencies.json");
+    let mut resolved: serde_json::Value = if resolved_path.is_file() {
+        serde_json::from_slice(&fs::read(&resolved_path)?)?
+    } else {
+        serde_json::json!({})
+    };
+    let resolved_value = resolved.get(resource_id).and_then(serde_json::Value::as_str).map(str::to_owned);
+    let legacy_value = registry.resources.get(resource_id).map(|item| item.install_path.clone());
+    let stored_path = resolved_value.or(legacy_value)
+        .ok_or_else(|| anyhow!("Dependency '{resource_id}' is not present in the central inventory."))?;
+    let candidate = PathBuf::from(&stored_path);
+    if !candidate.is_absolute() {
+        bail!("Dependency '{resource_id}' resolves outside the managed Shared directory ('{stored_path}'). It cannot be safely deleted by Shared.");
+    }
+    let canonical_root = base.canonicalize()?;
+    let canonical_candidate = candidate.canonicalize()
+        .with_context(|| format!("Dependency path does not exist: {}", candidate.display()))?;
+    if !canonical_candidate.starts_with(&canonical_root) {
+        bail!("Dependency '{resource_id}' is outside the central Shared directory and will not be deleted.");
+    }
+
+    match resource_id {
+        "ffmpeg" | "ffprobe" => {
+            let executable = if cfg!(windows) {
+                if resource_id == "ffmpeg" { "ffmpeg.exe" } else { "ffprobe.exe" }
+            } else if resource_id == "ffmpeg" { "ffmpeg" } else { "ffprobe" };
+            let target = if canonical_candidate.is_dir() { canonical_candidate.join(executable) } else { canonical_candidate.clone() };
+            if target.exists() { fs::remove_file(&target)?; }
+            if let Some(parent) = target.parent() {
+                if parent.starts_with(&canonical_root) && fs::read_dir(parent)?.next().is_none() {
+                    fs::remove_dir(parent)?;
+                }
+            }
+        }
+        "yt-dlp" => {
+            if canonical_candidate.is_dir() { fs::remove_dir_all(&canonical_candidate)?; }
+            else { fs::remove_file(&canonical_candidate)?; }
+        }
+        "whisper-models" => {
+            if canonical_candidate.is_dir() { fs::remove_dir_all(&canonical_candidate)?; }
+            else { fs::remove_file(&canonical_candidate)?; }
+        }
+        _ => {
+            bail!("Dependency '{resource_id}' is not stored as a safely removable resource inside Shared. Its installation is managed externally.");
+        }
+    }
+
+    if let Some(entries) = resolved.as_object_mut() { entries.remove(resource_id); }
+    let temporary = resolved_path.with_extension("json.tmp");
+    fs::write(&temporary, serde_json::to_vec_pretty(&resolved)?)?;
+    if resolved_path.exists() { fs::remove_file(&resolved_path)?; }
+    fs::rename(&temporary, &resolved_path)?;
+    registry.resources.remove(resource_id);
+    for app in registry.applications.values_mut() {
+        app.resources.retain(|item| item != resource_id);
+    }
+    write_registry(&base, &registry)?;
+    println!("Shared dependency removed: {resource_id}");
+    Ok(())
 }
 
 pub fn list_apps() -> Result<()> {
