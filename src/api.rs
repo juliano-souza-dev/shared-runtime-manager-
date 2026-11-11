@@ -82,6 +82,71 @@ fn write_registry(registry: &ApiRegistry) -> Result<()> {
     Ok(())
 }
 
+
+/// Bundled, non-secret metadata used to prefill known API providers.
+pub fn provider_catalog() -> Result<serde_json::Value> {
+    Ok(serde_json::from_str(include_str!("../assets/api-providers.json"))?)
+}
+
+/// Retrieves the model IDs exposed by a provider's official models endpoint.
+pub fn available_models(provider: &str) -> Result<Vec<String>> {
+    validate_id(provider)?;
+    let catalog = provider_catalog()?;
+    let entry = catalog.get("providers").and_then(serde_json::Value::as_array)
+        .and_then(|items| items.iter().find(|item| item.get("id").and_then(serde_json::Value::as_str) == Some(provider)))
+        .ok_or_else(|| anyhow!("Unknown API provider '{provider}'."))?;
+    let endpoint = entry.get("modelsEndpoint").and_then(serde_json::Value::as_str)
+        .ok_or_else(|| anyhow!("Provider '{provider}' has no models endpoint."))?;
+    let auth = entry.get("auth").and_then(serde_json::Value::as_str).unwrap_or("bearer");
+    #[cfg(windows)]
+    let secret = credential_entry(provider)?.get_password()
+        .context("Store the provider API key before refreshing its model list")?;
+    #[cfg(not(windows))]
+    bail!("Secure API credential storage is currently supported on Windows only.");
+
+    #[cfg(windows)]
+    {
+        let client = reqwest::blocking::Client::builder()
+            .user_agent("JulianoDev-SharedRuntimeManager/0.5")
+            .build()?;
+        let mut request = client.get(endpoint);
+        match auth {
+            "query" => { request = request.query(&[("key", secret.as_str())]); }
+            "anthropic" => {
+                request = request
+                    .header("x-api-key", &secret)
+                    .header("anthropic-version", "2023-06-01");
+            }
+            _ => { request = request.bearer_auth(&secret); }
+        }
+        let response: serde_json::Value = request.send()
+            .with_context(|| format!("Could not contact {provider} models endpoint"))?
+            .error_for_status()
+            .with_context(|| format!("{provider} rejected the models request; check the API key and account access"))?
+            .json()?;
+        let entries = response.get("data").or_else(|| response.get("models"))
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| anyhow!("Unexpected models response from {provider}."))?;
+        let mut models = Vec::new();
+        for item in entries {
+            if item.get("active").and_then(serde_json::Value::as_bool) == Some(false) { continue; }
+            if let Some(methods) = item.get("supportedGenerationMethods").and_then(serde_json::Value::as_array) {
+                if !methods.iter().any(|method| method.as_str() == Some("generateContent")) { continue; }
+            }
+            let raw = item.get("id").and_then(serde_json::Value::as_str)
+                .or_else(|| item.get("name").and_then(serde_json::Value::as_str));
+            if let Some(raw) = raw {
+                let id = raw.strip_prefix("models/").unwrap_or(raw);
+                if !id.is_empty() { models.push(id.to_owned()); }
+            }
+        }
+        models.sort();
+        models.dedup();
+        if models.is_empty() { bail!("No usable models were returned by {provider}."); }
+        Ok(models)
+    }
+}
+
 pub fn add(provider: &str, name: &str, endpoint: &str, model: &str) -> Result<()> {
     validate_id(provider)?;
     if name.trim().is_empty() || endpoint.trim().is_empty() || model.trim().is_empty() {
