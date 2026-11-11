@@ -1,7 +1,5 @@
-mod api;
-mod manager;
-
 use anyhow::Result;
+use shared_runtime_manager::{api, manager};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
