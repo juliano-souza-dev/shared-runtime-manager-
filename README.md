@@ -128,3 +128,26 @@ The application must not copy the key into its own settings file, logs, crash re
 3. Compatibility registry and a single-active-installation update coordinator for shared runtimes.
 4. Application-use leases/process coordination to prevent replacing binaries while in use.
 5. Shared model storage and, where RAM/VRAM sharing is required, a central inference service that loads a model once and serves multiple applications.
+
+
+## Desktop interface (0.4.0)
+
+The desktop management interface is built with Tauri 2 and uses the same Rust library as the CLI. It provides:
+
+- Dashboard with registered applications, API providers, shared resources, and the local data directory.
+- Visual application registration.
+- Global API provider configuration.
+- Per-application API authorization and revocation.
+- API key updates through the Windows Credential Manager.
+- Shared FFmpeg and SoX installation with optional application linking.
+
+Build the CLI and run the desktop app on Windows:
+
+```powershell
+cargo build --release
+cargo run --release --features desktop --bin srm-gui
+```
+
+The GUI feature is optional, so the existing CLI and its CI checks remain independent of the desktop runtime. The desktop interface currently targets Windows because protected API credential storage is Windows-only. API keys are entered into a password field and passed directly to the native credential store; they are never returned to the UI or written to the shared JSON registry.
+
+The first desktop release is a local management interface, not a background Windows service. Application discovery, signed app identity, compatibility approvals, update coordination, and a brokered SDK/IPC remain separate roadmap items.
