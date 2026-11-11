@@ -75,7 +75,8 @@ pub fn process_queue() -> Result<()> {
         }
     }
     let total = unique.len().max(1);
-    let mut resolved = read_json(&resolved_path(&root))?;
+    let resolved_file = resolved_path(&root);
+    let mut resolved: Value = if resolved_file.exists() { serde_json::from_slice(&fs::read(&resolved_file)?)? } else { json!({}) };
     if !resolved.is_object() { resolved = json!({}); }
     let mut results = Vec::new();
     for (index, id) in unique.iter().enumerate() {
@@ -169,4 +170,12 @@ pub fn remove_application(app_id: &str) -> Result<()> {
     }
     write_json(&path, &queue)?;
     Ok(())
+}
+
+pub fn set_failure(message: &str) -> Result<()> {
+    let root = root()?;
+    write_json(&status_path(&root), &json!({
+        "status":"error","progress":0,"current":"Falha no processamento da fila",
+        "error":message,"results":[]
+    }))
 }
