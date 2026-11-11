@@ -1,5 +1,5 @@
 use anyhow::Result;
-use shared_runtime_manager::{api, manager};
+use shared_runtime_manager::{api, dependency_manager, manager};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -11,87 +11,44 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Register an application that uses shared dependencies.
     Register {
         app_id: String,
         #[arg(long)]
         name: String,
-        /// Absolute path to the application's installation directory.
         #[arg(long)]
         path: String,
     },
-    /// List registered applications.
     Apps,
-    /// Install or update a managed shared resource.
-    Install {
-        resource: String,
-        #[arg(long)]
-        app: Option<String>,
-    },
-    /// List installed shared resources.
+    Install { resource: String, #[arg(long)] app: Option<String> },
     Resources,
-    /// Resolve the installation path of a resource for an application.
-    Resolve {
-        resource: String,
-        #[arg(long)]
-        app: Option<String>,
-    },
-    /// Manage globally shared API configurations and credentials.
-    Api {
-        #[command(subcommand)]
-        command: ApiCommand,
-    },
-    /// Print the shared runtime root directory.
+    Resolve { resource: String, #[arg(long)] app: Option<String> },
+    Api { #[command(subcommand)] command: ApiCommand },
     Root,
 }
 
 #[derive(Subcommand)]
 enum ApiCommand {
-    /// Create or update a global API configuration.
-    Add {
-        provider: String,
-        #[arg(long)]
-        name: String,
-        #[arg(long)]
-        endpoint: String,
-        #[arg(long)]
-        model: String,
-    },
-    /// Authorize an application to use a global API configuration.
-    Authorize {
-        provider: String,
-        #[arg(long)]
-        app: String,
-    },
-    /// Set the API secret. Reads the key from stdin, never from command arguments.
-    SetKey {
-        provider: String,
-    },
-    /// List API configurations without exposing secrets.
+    Add { provider: String, #[arg(long)] name: String, #[arg(long)] endpoint: String, #[arg(long)] model: String },
+    Authorize { provider: String, #[arg(long)] app: String },
+    SetKey { provider: String },
     List,
-    /// Resolve an API configuration for an authorized application.
-    Resolve {
-        provider: String,
-        #[arg(long)]
-        app: String,
-    },
-    /// Check whether a secret exists in the operating-system credential store.
-    KeyStatus {
-        provider: String,
-    },
+    Resolve { provider: String, #[arg(long)] app: String },
+    KeyStatus { provider: String },
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Register { app_id, name, path } => manager::register_app_at_path(&app_id, &name, &path),
+        Command::Register { app_id, name, path } => {
+            manager::register_app_at_path(&app_id, &name, &path)?;
+            dependency_manager::provision_application(&app_id, &path)
+        },
         Command::Apps => manager::list_apps(),
         Command::Install { resource, app } => manager::install(&resource, app.as_deref()),
         Command::Resources => manager::list_resources(),
         Command::Resolve { resource, app } => manager::resolve(&resource, app.as_deref()),
         Command::Api { command } => match command {
-            ApiCommand::Add { provider, name, endpoint, model } =>
-                api::add(&provider, &name, &endpoint, &model),
+            ApiCommand::Add { provider, name, endpoint, model } => api::add(&provider, &name, &endpoint, &model),
             ApiCommand::Authorize { provider, app } => api::authorize(&provider, &app),
             ApiCommand::SetKey { provider } => api::set_key_from_stdin(&provider),
             ApiCommand::List => api::list(),
