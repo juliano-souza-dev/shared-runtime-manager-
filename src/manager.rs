@@ -357,6 +357,9 @@ pub fn applications() -> Result<Vec<ApplicationInfo>> {
                     if let Some(resolved) = config.pointer("/shared/resolvedDependencies").and_then(serde_json::Value::as_object) {
                         linked.extend(resolved.keys().cloned());
                     }
+                    if let Some(resources) = config.pointer("/shared/resources").and_then(serde_json::Value::as_object) {
+                        linked.extend(resources.keys().cloned());
+                    }
                     let top = config.get("dependencies").and_then(serde_json::Value::as_array);
                     let shared = config.pointer("/shared/dependencies").and_then(serde_json::Value::as_array);
                     linked.extend(top.into_iter().flatten().chain(shared.into_iter().flatten()).filter_map(|entry| {
@@ -439,7 +442,10 @@ pub fn delete_resource(resource_id: &str) -> Result<()> {
         let already_linked = config.pointer("/shared/resolvedDependencies")
             .and_then(serde_json::Value::as_object)
             .is_some_and(|items| items.contains_key(resource_id));
-        let in_use = declared_in_use || already_linked;
+        let legacy_config_linked = config.pointer("/shared/resources")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|items| items.contains_key(resource_id));
+        let in_use = declared_in_use || already_linked || legacy_config_linked;
         if in_use { users.push(format!("{} ({})", app.name, app_id)); }
     }
     if !users.is_empty() {
