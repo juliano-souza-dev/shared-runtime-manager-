@@ -203,6 +203,12 @@ fn ensure_ffmpeg_component(root: &Path, id: &str, executable: &str) -> Result<Pa
 }
 
 fn ensure_yt_dlp(root: &Path) -> Result<PathBuf> {
+    let command = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" };
+    if let Some(found) = command_output(command, "path") {
+        let path = PathBuf::from(found);
+        println!("yt-dlp is already available on PATH; keeping the existing installation.");
+        return Ok(path.parent().unwrap_or(Path::new(".")).to_path_buf());
+    }
     let directory = root.join("tools/yt-dlp");
     let executable = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" };
     let target = directory.join(executable);
