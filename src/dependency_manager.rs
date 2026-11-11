@@ -256,7 +256,7 @@ fn ensure_yt_dlp(root: &Path) -> Result<PathBuf> {
     Ok(directory)
 }
 
-fn ensure_dependency(root: &Path, id: &str) -> Result<PathBuf> {
+pub(crate) fn ensure_dependency(root: &Path, id: &str) -> Result<PathBuf> {
     match id {
         "ffmpeg" => ensure_ffmpeg_component(root, "ffmpeg", if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" }),
         "ffprobe" => ensure_ffmpeg_component(root, "ffprobe", if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" }),
