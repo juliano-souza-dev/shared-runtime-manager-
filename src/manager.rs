@@ -40,6 +40,22 @@ struct Resource {
     source: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ApplicationInfo {
+    pub id: String,
+    pub name: String,
+    pub registered_at: u64,
+    pub resources: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ResourceInfo {
+    pub id: String,
+    pub version: String,
+    pub install_path: String,
+    pub installed_at: u64,
+}
+
 struct RegistryLock {
     path: PathBuf,
     _file: File,
@@ -165,6 +181,28 @@ pub fn register_app(app_id: &str, name: &str) -> Result<()> {
     write_registry(&base, &registry)?;
     println!("Application registered: {app_id} ({})", name.trim());
     Ok(())
+}
+
+pub fn applications() -> Result<Vec<ApplicationInfo>> {
+    let base = ensure_layout()?;
+    let registry = read_registry(&base)?;
+    Ok(registry.applications.into_iter().map(|(id, app)| ApplicationInfo {
+        id,
+        name: app.name,
+        registered_at: app.registered_at,
+        resources: app.resources,
+    }).collect())
+}
+
+pub fn resources() -> Result<Vec<ResourceInfo>> {
+    let base = ensure_layout()?;
+    let registry = read_registry(&base)?;
+    Ok(registry.resources.into_iter().map(|(id, resource)| ResourceInfo {
+        id,
+        version: resource.version,
+        install_path: resource.install_path,
+        installed_at: resource.installed_at,
+    }).collect())
 }
 
 pub fn list_apps() -> Result<()> {
