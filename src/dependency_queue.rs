@@ -44,7 +44,8 @@ pub fn enqueue_application(app_id: &str, installation_path: &str) -> Result<()> 
     let dependencies = dependencies_for(&config);
     let mut config = config;
     config["dependencies"] = Value::Array(dependencies.iter().map(|id| json!({"id":id,"required":true})).collect());
-    config["shared"]["dependencies"] = config["dependencies"].clone();
+    let declared = config["dependencies"].clone();
+    config["shared"]["dependencies"] = declared;
     write_json(&config_path, &config)?;
     let path = queue_path(&root);
     let mut queue = read_json(&path)?;
@@ -86,7 +87,7 @@ pub fn process_queue() -> Result<()> {
         match super::dependency_manager::ensure_dependency(&root, id) {
             Ok(path) => {
                 let value = path.to_string_lossy().into_owned();
-                resolved[id] = Value::String(value.clone());
+                resolved[id.as_str()] = Value::String(value.clone());
                 results.push(json!({"id":id,"status":"installed","path":value,"message":"Instalado ou já disponível"}));
                 write_json(&resolved_path(&root), &resolved)?;
                 refresh_registered_configs(&root, &resolved)?;
