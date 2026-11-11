@@ -6,7 +6,7 @@ The goal is to install large tools once and let multiple applications use them s
 
 ## Current status
 
-**Early development (0.1.0).** The first working slice targets Windows and manages FFmpeg. The registry, application links, download cache, staged installation, and SHA-256 verification are in place. SoX, Python, Node.js, model management, automatic updates, and a graphical interface are not implemented yet.
+**Version 0.2.0.** The Windows CLI manages FFmpeg and SoX. Applications can be registered and linked to shared tools, and resolved paths are checked against recorded SHA-256 hashes. SoX uses a pinned 14.4.2 archive and validates its SHA-1 checksum before extraction. The FFmpeg endpoint is still a rolling release and does not yet have a pinned upstream checksum.
 
 ## Shared location
 
@@ -20,13 +20,18 @@ On Windows, data is stored under:
 │   └── state.json
 ├── runtimes/
 └── tools/
-    └── ffmpeg/
-        └── gyan-release-essentials/
-            ├── ffmpeg.exe
-            └── ffprobe.exe
+    ├── ffmpeg/
+    │   └── gyan-release-essentials/
+    │       ├── ffmpeg.exe
+    │       └── ffprobe.exe
+    └── sox/
+        └── 14.4.2/
+            └── sox-14.4.2/
+                ├── sox.exe
+                └── supporting DLLs
 ```
 
-The manager does not add global PATH entries and does not modify application folders.
+The exact SoX subfolder follows the archive layout. The manager does not add global PATH entries and does not modify application folders.
 
 ## Build
 
@@ -47,22 +52,20 @@ srm register ttk-media --name "TTK Media"
 srm register nova-generator --name "Nova Generator"
 ```
 
-Install FFmpeg and link it to an application:
+Install and link shared tools:
 
 ```powershell
 srm install ffmpeg --app ttk-media
-```
-
-The same installation can be linked to another application:
-
-```powershell
+srm install sox --app ttk-media
 srm install ffmpeg --app nova-generator
+srm install sox --app nova-generator
 ```
 
 Resolve a resource path for an application:
 
 ```powershell
 srm resolve ffmpeg --app ttk-media
+srm resolve sox --app ttk-media
 ```
 
 Other commands:
@@ -73,26 +76,24 @@ srm apps
 srm resources
 ```
 
+The returned path is the directory containing the tool executable. For SoX, run `sox.exe` from that directory. The manager intentionally does not change PATH.
+
 ## Safety model
 
-- Downloads are written to a cache and extracted into a staging directory.
-- ZIP entries are checked for enclosed paths; only the two expected FFmpeg executables are extracted.
-- The registry records SHA-256 hashes for installed executables.
-- A resource is only resolved after its files pass integrity checks.
+- Downloads are cached and SoX is verified against a pinned SHA-1 checksum published by the SoX developers for the 14.4.2 Windows ZIP release.
+- ZIP paths are checked before extraction, and SoX symbolic-link entries are skipped.
+- Installations are extracted to a staging directory. Existing installations are moved to a backup and restored if the replacement move fails.
+- The registry records SHA-256 hashes for installed executable files and SoX runtime files.
+- A resource is only resolved after its registered files pass integrity checks.
 - Applications are linked explicitly in the registry.
-- There is intentionally no uninstall command in this first version. Removal and updates must account for every application reference before they are introduced.
+- There is intentionally no uninstall command yet. Removal must first check all application references.
 
-## Download source
-
-The FFmpeg Windows essentials archive is obtained from Gyan.dev: https://www.gyan.dev/ffmpeg/builds/
-
-The archive endpoint is a rolling release. The manager records the source and hashes the binaries after installation, but does not yet verify a publisher-provided signature or pinned upstream checksum. Do not treat this first version as a supply-chain hardened installer.
+**Security note:** SHA-1 is used only to match the historical upstream SoX release checksum. SHA-256 is used for local post-install integrity checks. SoX 14.4.2 is an old release, and the Windows package is x86. A newer maintained x64 build should be evaluated before using SoX for a production distribution. FFmpeg still uses Gyan.dev's rolling endpoint and needs a pinned release/checksum before the installer can be considered supply-chain hardened.
 
 ## Roadmap
 
-1. Windows FFmpeg manager and application registry.
-2. SoX and additional tools with pinned versions and verified checksums.
-3. Versioned Python and Node.js runtimes.
+1. Windows FFmpeg and SoX management with application links.
+2. Version-aware resource records and safe removal with reference checks.
+3. Pinned Python and Node.js runtimes.
 4. Shared model storage with per-application references.
-5. Safe update/removal with reference checks and rollback.
-6. Tauri integration and a small desktop management screen.
+5. Tauri integration and a small desktop management screen.
