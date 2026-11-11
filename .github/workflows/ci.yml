@@ -24,7 +24,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Format sources
         run: cargo fmt --all
-      - name: Check
+      - name: Check CLI and library
         run: cargo check --all-targets
-      - name: Test
+      - name: Test CLI and library
         run: cargo test --all-targets
+      - name: Check desktop application
+        if: matrix.os == 'windows-latest'
+        run: cargo check --features desktop --bin srm-gui
