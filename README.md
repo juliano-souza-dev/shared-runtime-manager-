@@ -1,12 +1,14 @@
 # Shared Runtime Manager
 
-A shared dependency manager for locally installed JulianoDev desktop applications.
+A shared dependency, runtime, model-storage, and API-configuration manager for JulianoDev desktop applications.
 
-The goal is to install large tools once and let multiple applications use them safely, while keeping application data and settings independent.
+The design goal is one active shared installation/configuration per resource, consumed by explicitly authorized applications. Applications must not maintain private copies of centrally managed dependencies or credentials.
 
 ## Current status
 
-**Version 0.2.0.** The Windows CLI manages FFmpeg and SoX. Applications can be registered and linked to shared tools, and resolved paths are checked against recorded SHA-256 hashes. SoX uses a pinned 14.4.2 archive and validates its SHA-1 checksum before extraction. The FFmpeg endpoint is still a rolling release and does not yet have a pinned upstream checksum.
+**Version 0.3.0.** The Windows CLI manages FFmpeg and SoX and now supports global API configuration metadata plus secrets stored in Windows Credential Manager. The API registry contains no API keys. Application authorization is explicit.
+
+The API feature is an initial centralized storage layer. Direct application SDK integration, compatibility declarations, process-use leases, coordinated dependency updates, and a local inference service remain future work.
 
 ## Shared location
 
@@ -17,21 +19,15 @@ On Windows, data is stored under:
 ├── cache/
 ├── models/
 ├── registry/
-│   └── state.json
+│   ├── state.json
+│   └── apis.json
 ├── runtimes/
 └── tools/
     ├── ffmpeg/
-    │   └── gyan-release-essentials/
-    │       ├── ffmpeg.exe
-    │       └── ffprobe.exe
     └── sox/
-        └── 14.4.2/
-            └── sox-14.4.2/
-                ├── sox.exe
-                └── supporting DLLs
 ```
 
-The exact SoX subfolder follows the archive layout. The manager does not add global PATH entries and does not modify application folders.
+API secrets are stored separately in **Windows Credential Manager**, under service `JulianoDev.SharedRuntime.Api` and account `api:<provider-id>`. They are not written to JSON, command-line arguments, or application configuration files.
 
 ## Build
 
@@ -39,61 +35,96 @@ Install the Rust stable toolchain, then:
 
 ```powershell
 cargo build --release
+cargo test --all-targets
 ```
 
 The executable is `target/release/srm.exe` on Windows.
 
-## First run
-
-Register each application once:
+## Register applications
 
 ```powershell
 srm register ttk-media --name "TTK Media"
 srm register nova-generator --name "Nova Generator"
 ```
 
-Install and link shared tools:
+## Shared dependencies
 
 ```powershell
 srm install ffmpeg --app ttk-media
 srm install sox --app ttk-media
-srm install ffmpeg --app nova-generator
-srm install sox --app nova-generator
-```
-
-Resolve a resource path for an application:
-
-```powershell
 srm resolve ffmpeg --app ttk-media
-srm resolve sox --app ttk-media
 ```
 
-Other commands:
+## Global API configuration
+
+Create or update a provider's shared non-secret settings:
 
 ```powershell
-srm root
-srm apps
-srm resources
+srm api add groq --name "Groq" --endpoint "https://api.groq.com/openai/v1" --model "llama-3.3-70b-versatile"
 ```
 
-The returned path is the directory containing the tool executable. For SoX, run `sox.exe` from that directory. The manager intentionally does not change PATH.
+Authorize applications individually:
 
-## Safety model
+```powershell
+srm api authorize groq --app ttk-media
+srm api authorize groq --app nova-generator
+```
 
-- Downloads are cached and SoX is verified against a pinned SHA-1 checksum published by the SoX developers for the 14.4.2 Windows ZIP release.
-- ZIP paths are checked before extraction, and SoX symbolic-link entries are skipped.
-- Installations are extracted to a staging directory. Existing installations are moved to a backup and restored if the replacement move fails.
-- The registry records SHA-256 hashes for installed executable files and SoX runtime files.
-- A resource is only resolved after its registered files pass integrity checks.
-- Applications are linked explicitly in the registry.
-- There is intentionally no uninstall command yet. Removal must first check all application references.
+Set the key through standard input. This avoids putting the secret in shell command arguments or process command-line listings:
 
-**Security note:** SHA-1 is used only to match the historical upstream SoX release checksum. SHA-256 is used for local post-install integrity checks. SoX 14.4.2 is an old release, and the Windows package is x86. A newer maintained x64 build should be evaluated before using SoX for a production distribution. FFmpeg still uses Gyan.dev's rolling endpoint and needs a pinned release/checksum before the installer can be considered supply-chain hardened.
+```powershell
+Read-Host "Groq API key" -AsSecureString | ForEach-Object {
+    $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($_)
+    try {
+        $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+        $plain | srm api set-key groq
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+    }
+}
+```
 
-## Roadmap
+List providers and check credential presence:
 
-1. Windows FFmpeg and SoX management with application links.
-2. Version-aware resource records and safe removal with reference checks.
-3. Pinned Python and Node.js runtimes.
-4. Shared model storage with per-application references.
-5. Tauri integration and a small desktop management screen.
+```powershell
+srm api list
+srm api key-status groq
+```
+
+Resolve settings for an authorized application. The output contains endpoint/model metadata and authorized application IDs, **never the API key**:
+
+```powershell
+srm api resolve groq --app ttk-media
+```
+
+### Application integration contract
+
+Windows desktop applications should use the same OS credential-store entry when retrieving a secret:
+
+- Credential service: `JulianoDev.SharedRuntime.Api`
+- Credential account: `api:<provider-id>`
+- Secret storage: Windows Credential Manager
+- Non-secret configuration: `registry/apis.json`
+- Authorization: the application's ID must be present in that provider's `authorized_apps` list.
+
+The application must not copy the key into its own settings file, logs, crash reports, or command-line arguments. The Rust manager's internal accessor checks the authorization registry before returning a secret. A stable public SDK/IPC interface is planned so applications do not need to implement credential-store access independently.
+
+## Security and lifecycle notes
+
+- API keys are stored through the Windows native credential backend provided by the keyring crate.
+- API metadata and authorization lists are stored in the shared registry; secrets are not.
+- The CLI never prints API secrets.
+- Applications are authorized per provider.
+- Do not pass API keys as command-line arguments. Use standard input as shown above.
+- Credential storage is currently Windows-only. Other platforms fail closed rather than writing secrets in plaintext.
+- This first API implementation does not yet provide a background broker/IPC service, credential rotation notifications, or audit events.
+- The current SoX 14.4.2 package is an old Windows x86 build and needs replacement with a maintained x64 distribution before production use.
+- FFmpeg currently uses Gyan.dev's rolling endpoint and still needs a pinned release/checksum for stronger supply-chain verification.
+
+## Architecture roadmap
+
+1. Shared API configuration and OS-protected credentials (initial CLI implementation).
+2. A stable application SDK/IPC contract for retrieving authorized settings and secrets.
+3. Compatibility registry and a single-active-installation update coordinator for shared runtimes.
+4. Application-use leases/process coordination to prevent replacing binaries while in use.
+5. Shared model storage and, where RAM/VRAM sharing is required, a central inference service that loads a model once and serves multiple applications.
