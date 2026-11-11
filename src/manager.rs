@@ -263,22 +263,33 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
     application["id"] = serde_json::Value::String(app_id.to_owned());
     application["name"] = serde_json::Value::String(app.name.clone());
 
-    let shared = serde_json::json!({
-        "enabled": true,
-        "root": shared_root.display().to_string(),
-        "directories": {
-            "tools": shared_root.join("tools").display().to_string(),
-            "runtimes": shared_root.join("runtimes").display().to_string(),
-            "models": shared_root.join("models").display().to_string(),
-            "cache": shared_root.join("cache").display().to_string(),
-            "registry": shared_root.join("registry").display().to_string()
-        },
-        "files": {
-            "applications": shared_root.join(REGISTRY_FILE).display().to_string(),
-            "apiProviders": shared_root.join("registry/apis.json").display().to_string()
-        },
-        "resources": installed_resources
+    // Application-owned declarations must survive every Shared refresh.
+    let mut shared = document.get("shared").cloned()
+        .filter(|value| value.is_object()).unwrap_or_else(|| serde_json::json!({}));
+    if !shared.get("dependencies").is_some_and(serde_json::Value::is_array) {
+        shared["dependencies"] = serde_json::json!([]);
+    }
+    if !shared.get("providers").is_some_and(serde_json::Value::is_array) {
+        shared["providers"] = serde_json::json!([]);
+    }
+    validate_declarations(&shared, "dependencies")?;
+    validate_declarations(&shared, "providers")?;
+
+    // Shared-owned fields are refreshed from the central registry.
+    shared["enabled"] = serde_json::Value::Bool(true);
+    shared["root"] = serde_json::Value::String(shared_root.display().to_string());
+    shared["directories"] = serde_json::json!({
+        "tools": shared_root.join("tools").display().to_string(),
+        "runtimes": shared_root.join("runtimes").display().to_string(),
+        "models": shared_root.join("models").display().to_string(),
+        "cache": shared_root.join("cache").display().to_string(),
+        "registry": shared_root.join("registry").display().to_string()
     });
+    shared["files"] = serde_json::json!({
+        "applications": shared_root.join(REGISTRY_FILE).display().to_string(),
+        "apiProviders": shared_root.join("registry/apis.json").display().to_string()
+    });
+    shared["resources"] = serde_json::to_value(installed_resources)?;
 
     document["schemaVersion"] = serde_json::Value::String("1.0".to_owned());
     document["application"] = application;
@@ -296,6 +307,33 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
     }
     fs::rename(&temporary, &config_path)
         .with_context(|| format!("Could not replace {}", config_path.display()))?;
+    Ok(())
+}
+
+/// Validate application-declared dependency/provider entries.
+fn validate_declarations(shared: &serde_json::Value, field: &str) -> Result<()> {
+    let entries = shared.get(field)
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| anyhow!("shared.{field} must be an array"))?;
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let id = entry.get("id").and_then(serde_json::Value::as_str)
+            .ok_or_else(|| anyhow!("shared.{field}[{index}].id must be a string"))?;
+        validate_id(id).with_context(|| format!("Invalid ID in shared.{field}[{index}]"))?;
+        if !seen.insert(id) {
+            bail!("Duplicate ID '{id}' in shared.{field}.");
+        }
+        if let Some(required) = entry.get("required") {
+            if !required.is_boolean() {
+                bail!("shared.{field}[{index}].required must be a boolean.");
+            }
+        }
+        if let Some(version) = entry.get("version") {
+            if !version.is_string() {
+                bail!("shared.{field}[{index}].version must be a string.");
+            }
+        }
+    }
     Ok(())
 }
 
@@ -715,6 +753,28 @@ mod tests {
         assert!(validate_id("../outside").is_err());
         assert!(validate_id("app name").is_err());
         assert!(validate_id(&"a".repeat(65)).is_err());
+    }
+
+    #[test]
+    fn validates_dependency_and_provider_declarations() {
+        let valid = serde_json::json!({
+            "dependencies": [
+                {"id": "ffmpeg", "required": true, "version": ">=7"}
+            ],
+            "providers": [{"id": "groq", "required": false}]
+        });
+        assert!(validate_declarations(&valid, "dependencies").is_ok());
+        assert!(validate_declarations(&valid, "providers").is_ok());
+
+        let duplicate = serde_json::json!({
+            "dependencies": [{"id": "ffmpeg"}, {"id": "ffmpeg"}]
+        });
+        assert!(validate_declarations(&duplicate, "dependencies").is_err());
+
+        let invalid = serde_json::json!({
+            "dependencies": [{"id": "../outside"}]
+        });
+        assert!(validate_declarations(&invalid, "dependencies").is_err());
     }
 
     #[test]
