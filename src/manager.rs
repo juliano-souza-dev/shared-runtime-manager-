@@ -421,13 +421,30 @@ pub fn delete_resource(resource_id: &str) -> Result<()> {
         let Ok(config) = serde_json::from_slice::<serde_json::Value>(&bytes) else { continue; };
         let declared = config.get("dependencies").and_then(serde_json::Value::as_array)
             .or_else(|| config.pointer("/shared/dependencies").and_then(serde_json::Value::as_array));
-        let in_use = declared.into_iter().flatten().any(|entry| {
+        let declared_in_use = declared.into_iter().flatten().any(|entry| {
             entry.get("id").and_then(serde_json::Value::as_str) == Some(resource_id)
         });
+        let already_linked = config.pointer("/shared/resolvedDependencies")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|items| items.contains_key(resource_id));
+        let in_use = declared_in_use || already_linked;
         if in_use { users.push(format!("{} ({})", app.name, app_id)); }
     }
     if !users.is_empty() {
         bail!("Cannot delete dependency '{resource_id}'. It is still declared by: {}. Remove the dependency from those applications and synchronize them first.", users.join(", "));
+    }
+
+    let queue_path = base.join("registry/dependency-queue.json");
+    if queue_path.is_file() {
+        let queue: serde_json::Value = serde_json::from_slice(&fs::read(&queue_path)?)?;
+        let queued = queue.get("items").and_then(serde_json::Value::as_array)
+            .into_iter().flatten().any(|item| {
+                item.get("dependencies").and_then(serde_json::Value::as_array)
+                    .into_iter().flatten().any(|dependency| dependency.as_str() == Some(resource_id))
+            });
+        if queued {
+            bail!("Cannot delete dependency '{resource_id}' while it is waiting in the installation queue.");
+        }
     }
 
     let resolved_path = base.join("registry/resolved-dependencies.json");
