@@ -47,6 +47,41 @@ srm register ttk-media --name "TTK Media"
 srm register nova-generator --name "Nova Generator"
 ```
 
+Each registered application must provide its absolute installation directory. Shared Runtime creates or updates a `shared.config.json` file in that directory. The file contains the application identity and absolute paths to the shared root, managed directories, registries, and resources explicitly linked to that application.
+
+Example:
+
+```powershell
+srm register nova-generator --name "Nova Generator" --path "C:\\Projects\\nova-generator"
+```
+
+The generated file is a location manifest, not a secret store. API keys remain in Windows Credential Manager. Existing application-owned JSON properties are preserved when Shared Runtime updates its `application` and `shared` sections. Invalid JSON is not overwritten.
+
+```json
+{
+  "schemaVersion": "1.0",
+  "application": { "id": "nova-generator", "name": "Nova Generator" },
+  "shared": {
+    "enabled": true,
+    "root": "C:\\Users\\User\\AppData\\Local\\JulianoDev\\SharedRuntime",
+    "directories": {
+      "tools": "...\\tools",
+      "runtimes": "...\\runtimes",
+      "models": "...\\models",
+      "cache": "...\\cache",
+      "registry": "...\\registry"
+    },
+    "files": {
+      "applications": "...\\registry\\state.json",
+      "apiProviders": "...\\registry\\apis.json"
+    },
+    "resources": {}
+  }
+}
+```
+
+Applications should resolve their shared paths from this file at startup. They must not hardcode the Shared Runtime installation directory or copy centrally managed resources into their own project folders.
+
 ## Shared dependencies
 
 ```powershell
