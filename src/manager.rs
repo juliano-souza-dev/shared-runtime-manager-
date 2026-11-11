@@ -357,9 +357,9 @@ pub fn applications() -> Result<Vec<ApplicationInfo>> {
                     if let Some(resolved) = config.pointer("/shared/resolvedDependencies").and_then(serde_json::Value::as_object) {
                         linked.extend(resolved.keys().cloned());
                     }
-                    let declared = config.get("dependencies").and_then(serde_json::Value::as_array)
-                        .or_else(|| config.pointer("/shared/dependencies").and_then(serde_json::Value::as_array));
-                    linked.extend(declared.into_iter().flatten().filter_map(|entry| {
+                    let top = config.get("dependencies").and_then(serde_json::Value::as_array);
+                    let shared = config.pointer("/shared/dependencies").and_then(serde_json::Value::as_array);
+                    linked.extend(top.into_iter().flatten().chain(shared.into_iter().flatten()).filter_map(|entry| {
                         entry.get("id").and_then(serde_json::Value::as_str).map(str::to_owned)
                     }));
                 }
@@ -428,9 +428,9 @@ pub fn delete_resource(resource_id: &str) -> Result<()> {
         let config_path = PathBuf::from(&app.installation_path).join("shared.config.json");
         let Ok(bytes) = fs::read(&config_path) else { continue; };
         let Ok(config) = serde_json::from_slice::<serde_json::Value>(&bytes) else { continue; };
-        let declared = config.get("dependencies").and_then(serde_json::Value::as_array)
-            .or_else(|| config.pointer("/shared/dependencies").and_then(serde_json::Value::as_array));
-        let declared_in_use = declared.into_iter().flatten().any(|entry| {
+        let top = config.get("dependencies").and_then(serde_json::Value::as_array);
+        let shared = config.pointer("/shared/dependencies").and_then(serde_json::Value::as_array);
+        let declared_in_use = top.into_iter().flatten().chain(shared.into_iter().flatten()).any(|entry| {
             entry.get("id").and_then(serde_json::Value::as_str) == Some(resource_id)
         });
         let already_linked = config.pointer("/shared/resolvedDependencies")
