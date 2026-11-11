@@ -29,7 +29,8 @@ fn dependencies_for(config: &Value) -> Vec<String> {
             v.get("id").and_then(Value::as_str).map(str::to_owned)
         } else { None }
     }).collect();
-    if ids.is_empty() {
+    let declared_count = values.map(|items| items.len()).unwrap_or(0);
+    if declared_count == 0 {
         ["ffmpeg","ffprobe","yt-dlp","python","faster-whisper","pyav","whisper-models"].iter().map(|s| s.to_string()).collect()
     } else { ids }
 }
@@ -46,6 +47,14 @@ pub fn enqueue_application(app_id: &str, installation_path: &str) -> Result<()> 
     config["dependencies"] = Value::Array(dependencies.iter().map(|id| json!({"id":id,"required":true})).collect());
     let declared = config["dependencies"].clone();
     config["shared"]["dependencies"] = declared;
+    let data_root = PathBuf::from(installation_path).join("data");
+    let mut app_data = BTreeMap::<String, String>::new();
+    for name in ["projects", "database", "sounds", "logs", "user-files"] {
+        let directory = data_root.join(name);
+        fs::create_dir_all(&directory)?;
+        app_data.insert(name.to_owned(), directory.to_string_lossy().into_owned());
+    }
+    config["application"]["data"] = serde_json::to_value(app_data)?;
     write_json(&config_path, &config)?;
     let path = queue_path(&root);
     let mut queue = read_json(&path)?;
