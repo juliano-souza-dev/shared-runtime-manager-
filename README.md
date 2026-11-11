@@ -55,14 +55,52 @@ Example:
 srm register nova-generator --name "Nova Generator" --path "C:\\Projects\\nova-generator"
 ```
 
-The generated file is a location manifest, not a secret store. API keys remain in Windows Credential Manager. Existing application-owned JSON properties are preserved when Shared Runtime updates its `application` and `shared` sections. Invalid JSON is not overwritten.
+The generated file is the application-to-Shared contract, not a secret store. The application owns the declarations in `shared.dependencies` and `shared.providers`; Shared Runtime preserves them during registration and every resource refresh. Shared Runtime owns and refreshes `enabled`, `root`, `directories`, `files`, and `resources`. API keys remain in Windows Credential Manager. Invalid JSON or invalid declaration structures are not overwritten.
 
 ```json
 {
   "schemaVersion": "1.0",
-  "application": { "id": "nova-generator", "name": "Nova Generator" },
+  "application": {
+    "id": "ttk-media",
+    "name": "TTK Media"
+  },
   "shared": {
     "enabled": true,
+    "dependencies": [
+      {
+        "id": "ffmpeg",
+        "required": true,
+        "version": ">=7"
+      },
+      {
+        "id": "yt-dlp",
+        "required": true
+      },
+      {
+        "id": "python",
+        "required": true
+      },
+      {
+        "id": "faster-whisper",
+        "required": true,
+        "version": ">=1.1,<2"
+      },
+      {
+        "id": "pyav",
+        "required": true,
+        "version": ">=11,<19"
+      },
+      {
+        "id": "whisper-models",
+        "required": true
+      }
+    ],
+    "providers": [
+      {
+        "id": "groq",
+        "required": false
+      }
+    ],
     "root": "C:\\Users\\User\\AppData\\Local\\JulianoDev\\SharedRuntime",
     "directories": {
       "tools": "...\\tools",
@@ -79,6 +117,20 @@ The generated file is a location manifest, not a secret store. API keys remain i
   }
 }
 ```
+
+### Configuration ownership and validation
+
+The application declares the resources it needs in `shared.dependencies` and the external API providers it may use in `shared.providers`. Each entry requires a unique `id`. The optional `required` field is boolean, and the optional `version` field is a version constraint for dependencies.
+
+Example dependency: `{"id":"ffmpeg","required":true,"version":">=7"}`. Example provider: `{"id":"groq","required":false}`.
+
+The Shared Runtime Manager validates that both properties are arrays, every entry has a safe identifier, IDs are unique within each list, and optional `required` and `version` values have the correct types. Missing lists are initialized as empty arrays. Malformed declarations are not silently replaced.
+
+Ownership is deliberately split:
+- **Application-owned:** `application`, `shared.dependencies`, and `shared.providers`.
+- **Shared-owned:** `schemaVersion`, `shared.enabled`, `shared.root`, `shared.directories`, `shared.files`, and `shared.resources`.
+
+`shared.resources` contains resolved absolute paths for resources actually installed and linked to that application. Declaring a dependency does not automatically install or link it yet; automatic dependency resolution/installation is a separate next capability. Provider declarations do not store API keys or grant authorization by themselves. Provider credentials and per-app authorization remain in the global API registry and Windows Credential Manager.
 
 Applications should resolve their shared paths from this file at startup. They must not hardcode the Shared Runtime installation directory or copy centrally managed resources into their own project folders.
 
