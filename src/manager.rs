@@ -222,6 +222,15 @@ pub fn register_app_at_path(app_id: &str, name: &str, installation_path: &str) -
     Ok(())
 }
 
+/// Refresh generated configuration files after the shared resource registry changes.
+fn refresh_application_configs(shared_root: &Path) -> Result<()> {
+    let registry = read_registry(shared_root)?;
+    for (app_id, app) in &registry.applications {
+        write_application_config(shared_root, app_id, app)?;
+    }
+    Ok(())
+}
+
 fn write_application_config(shared_root: &Path, app_id: &str, app: &Application) -> Result<()> {
     if app.installation_path.is_empty() {
         return Ok(());
@@ -244,8 +253,8 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
     }
 
     let resource_registry = read_registry(shared_root)?;
-    let installed_resources: BTreeMap<String, String> = resource_registry.resources.iter()
-        .map(|(id, resource)| (id.clone(), resource.install_path.clone()))
+    let installed_resources: BTreeMap<String, String> = app.resources.iter()
+        .filter_map(|id| resource_registry.resources.get(id).map(|resource| (id.clone(), resource.install_path.clone())))
         .collect();
 
     let mut application = document.get("application").cloned()
@@ -400,6 +409,7 @@ fn install_ffmpeg(app_id: Option<&str>) -> Result<()> {
     );
     link_resource(&mut registry, "ffmpeg", app_id);
     write_registry(&base, &registry)?;
+    refresh_application_configs(&base)?;
     println!("FFmpeg is ready: {}", destination.display());
     if let Some(id) = app_id {
         println!("Linked resource 'ffmpeg' to application '{id}'.");
@@ -472,6 +482,7 @@ fn install_sox(app_id: Option<&str>) -> Result<()> {
         );
         link_resource(&mut registry, "sox", app_id);
         write_registry(&base, &registry)?;
+        refresh_application_configs(&base)?;
         println!("SoX {SOX_VERSION} is ready: {}", registered_path.display());
         if let Some(id) = app_id {
             println!("Linked resource 'sox' to application '{id}'.");
@@ -716,6 +727,7 @@ mod tests {
             Application {
                 name: "TTK Media".to_owned(),
                 registered_at: 123,
+                installation_path: String::new(),
                 resources: vec!["sox".to_owned()],
             },
         );
