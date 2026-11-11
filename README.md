@@ -43,8 +43,8 @@ The executable is `target/release/srm.exe` on Windows.
 ## Register applications
 
 ```powershell
-srm register ttk-media --name "TTK Media"
-srm register nova-generator --name "Nova Generator"
+srm register ttk-media --name "TTK Media" --path "C:\\Projects\\ttk-media"
+srm register nova-generator --name "Nova Generator" --path "C:\\Projects\\nova-generator"
 ```
 
 Each registered application must provide its absolute installation directory. Shared Runtime creates or updates a `shared.config.json` file in that directory. The file contains the application identity and absolute paths to the shared root, managed directories, registries, and resources explicitly linked to that application.
