@@ -54,6 +54,10 @@ fn install_shared_resource(resource: String, app_id: Option<String>) -> Result<(
     manager::install(&resource, app_id.as_deref()).map_err(error_text)
 }
 #[tauri::command]
+fn provider_catalog() -> Result<serde_json::Value, String> { api::provider_catalog().map_err(error_text) }
+#[tauri::command]
+fn available_api_models(provider: String) -> Result<Vec<String>, String> { api::available_models(&provider).map_err(error_text) }
+#[tauri::command]
 fn save_api_provider(provider: String, name: String, endpoint: String, model: String) -> Result<(), String> {
     api::add(&provider, &name, &endpoint, &model).map_err(error_text)
 }
@@ -74,7 +78,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             dashboard_data, register_application, delete_application,
             start_dependency_queue, dependency_queue_status,
-            install_shared_resource, save_api_provider, authorize_api,
+            install_shared_resource, provider_catalog, available_api_models, save_api_provider, authorize_api,
             revoke_api, save_api_key
         ])
         .run(tauri::generate_context!())
