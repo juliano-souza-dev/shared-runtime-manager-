@@ -1,5 +1,5 @@
 use anyhow::Result;
-use shared_runtime_manager::{api, dependency_manager, manager};
+use shared_runtime_manager::{api, dependency_queue, manager};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -41,7 +41,7 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Register { app_id, name, path } => {
             manager::register_app_at_path(&app_id, &name, &path)?;
-            dependency_manager::provision_application(&app_id, &path)
+            dependency_queue::enqueue_application(&app_id, &path)
         },
         Command::Apps => manager::list_apps(),
         Command::Install { resource, app } => manager::install(&resource, app.as_deref()),
@@ -55,7 +55,7 @@ fn main() -> Result<()> {
             ApiCommand::Resolve { provider, app } => api::resolve(&provider, &app),
             ApiCommand::KeyStatus { provider } => api::key_status(&provider),
         },
-        Command::Root => {
+        Command::ProcessQueue => dependency_queue::process_queue(),\n        Command::QueueStatus => {\n            println!("{}", serde_json::to_string_pretty(&dependency_queue::status()?)?);\n            Ok(())\n        },\n        Command::Root => {
             println!("{}", manager::root()?.display());
             Ok(())
         }
