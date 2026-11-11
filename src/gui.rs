@@ -38,7 +38,9 @@ fn delete_application(app_id: String) -> Result<(), String> {
 fn start_dependency_queue() -> Result<(), String> {
     if QUEUE_RUNNING.swap(true, Ordering::SeqCst) { return Ok(()); }
     std::thread::spawn(|| {
-        let _ = dependency_queue::process_queue();
+        if let Err(error) = dependency_queue::process_queue() {
+            let _ = dependency_queue::set_failure(&format!("{error:#}"));
+        }
         QUEUE_RUNNING.store(false, Ordering::SeqCst);
     });
     Ok(())
