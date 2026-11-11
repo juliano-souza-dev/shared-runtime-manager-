@@ -226,7 +226,7 @@ The desktop management interface is built with Tauri 2 and uses the same Rust li
 - Global API provider configuration.
 - Per-application API authorization and revocation.
 - API key updates through the Windows Credential Manager.
-- Shared FFmpeg and SoX installation with optional application linking.
+- A dependency library that lists centrally installed resources across all applications.\n- Provider presets for Groq, OpenAI, Anthropic, Google Gemini, DeepSeek, Mistral, and OpenRouter.\n- Live model discovery from each provider after its API key is stored.
 
 Build the CLI and run the desktop app on Windows:
 
@@ -242,7 +242,7 @@ The first desktop release is a local management interface, not a background Wind
 
 ## Application dependency contract and first registration
 
-When an application is registered with an absolute path, the CLI and desktop interface read its root-level `shared.config.json` and provision the dependencies declared there. If the `dependencies` array is absent, Shared writes this default contract:
+When an application is registered with an absolute path, Shared creates or updates its root-level `shared.config.json`, adds the declared dependencies to a durable queue, and returns control without waiting for downloads. The queue installs each unique dependency centrally, then refreshes the configs of every registered application that declares it. Individual dependency failures are recorded without preventing the remaining dependencies from being processed. If the `dependencies` array is absent, Shared writes this default contract:
 
 ```json
 {
@@ -267,3 +267,12 @@ Groq is a cloud provider, not a downloadable local dependency. Its non-secret se
 Python is reused when present. On Windows, if Python is missing and Windows Package Manager is available, Shared requests Python 3.12 through winget. Missing Faster-Whisper and PyAV Python packages are installed into the selected Python environment only after import checks show they are absent.
 
 The `whisper-models` dependency currently provisions the shared model-storage directory. Actual model weights are downloaded by the consuming application's model-selection/loading flow, because the application must choose which Whisper model size it needs. Shared does not guess a model size or download every model variant.
+
+
+## Dependency library and API provider catalog
+
+The desktop page **Biblioteca de dependências** is an inventory of resources resolved in the central Shared Runtime directory. It combines the legacy resource registry with `registry/resolved-dependencies.json`, so an installation is listed regardless of which application first requested it. Resource installation is part of application registration and queue processing; the desktop library is intentionally read-only.
+
+Provider presets are bundled in `assets/api-providers.json` and compiled into the application. Each entry documents the provider ID, display name, base endpoint, model-list endpoint, authentication style, API-key creation page, official documentation, and initial model suggestions. The current presets cover Groq, OpenAI, Anthropic, Google Gemini, DeepSeek, Mistral AI, and OpenRouter.
+
+The provider catalog is metadata, not an installer: cloud APIs are accessed over HTTPS and require an API key. The UI pre-fills the provider name and endpoint. After the key is stored in Windows Credential Manager, **Modelos** calls the provider's model-list endpoint and offers the models currently returned by that account. The bundled model suggestions are only an initial fallback; the live provider response is authoritative. Authentication differs by provider: Bearer token for OpenAI-compatible providers, Anthropic API-key/version headers for Claude, and a query-string API key for Gemini.
