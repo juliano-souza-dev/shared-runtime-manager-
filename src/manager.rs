@@ -360,7 +360,9 @@ pub fn applications() -> Result<Vec<ApplicationInfo>> {
                     let top = config.get("dependencies").and_then(serde_json::Value::as_array);
                     let shared = config.pointer("/shared/dependencies").and_then(serde_json::Value::as_array);
                     linked.extend(top.into_iter().flatten().chain(shared.into_iter().flatten()).filter_map(|entry| {
-                        entry.get("id").and_then(serde_json::Value::as_str).map(str::to_owned)
+                        if entry.get("required").and_then(serde_json::Value::as_bool).unwrap_or(true) {
+                            entry.get("id").and_then(serde_json::Value::as_str).map(str::to_owned)
+                        } else { None }
                     }));
                 }
             }
@@ -431,7 +433,8 @@ pub fn delete_resource(resource_id: &str) -> Result<()> {
         let top = config.get("dependencies").and_then(serde_json::Value::as_array);
         let shared = config.pointer("/shared/dependencies").and_then(serde_json::Value::as_array);
         let declared_in_use = top.into_iter().flatten().chain(shared.into_iter().flatten()).any(|entry| {
-            entry.get("id").and_then(serde_json::Value::as_str) == Some(resource_id)
+            entry.get("required").and_then(serde_json::Value::as_bool).unwrap_or(true)
+                && entry.get("id").and_then(serde_json::Value::as_str) == Some(resource_id)
         });
         let already_linked = config.pointer("/shared/resolvedDependencies")
             .and_then(serde_json::Value::as_object)
