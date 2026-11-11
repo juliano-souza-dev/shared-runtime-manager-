@@ -35,6 +35,21 @@ fn delete_application(app_id: String) -> Result<(), String> {
     dependency_queue::remove_application(&app_id).map_err(error_text)
 }
 #[tauri::command]
+fn synchronize_application(app_id: String) -> Result<(), String> {
+    let app = manager::applications().map_err(error_text)?
+        .into_iter().find(|item| item.id == app_id)
+        .ok_or_else(|| format!("Application '{app_id}' is not registered."))?;
+    if app.installation_path.is_empty() {
+        return Err(format!("Application '{app_id}' has no installation path."));
+    }
+    dependency_queue::enqueue_application(&app_id, &app.installation_path).map_err(error_text)?;
+    start_dependency_queue()
+}
+#[tauri::command]
+fn delete_shared_dependency(dependency_id: String) -> Result<(), String> {
+    manager::delete_resource(&dependency_id).map_err(error_text)
+}
+#[tauri::command]
 fn start_dependency_queue() -> Result<(), String> {
     if QUEUE_RUNNING.swap(true, Ordering::SeqCst) { return Ok(()); }
     std::thread::spawn(|| {
@@ -72,7 +87,7 @@ fn save_api_key(provider: String, secret: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            dashboard_data, register_application, delete_application,
+            dashboard_data, register_application, delete_application, synchronize_application, delete_shared_dependency,
             start_dependency_queue, dependency_queue_status,
             provider_catalog, available_api_models, save_api_provider, authorize_api,
             revoke_api, save_api_key
