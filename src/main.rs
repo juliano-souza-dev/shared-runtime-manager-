@@ -24,6 +24,8 @@ enum Command {
     Resolve { resource: String, #[arg(long)] app: Option<String> },
     Api { #[command(subcommand)] command: ApiCommand },
     Root,
+    ProcessQueue,
+    QueueStatus,
 }
 
 #[derive(Subcommand)]
@@ -55,7 +57,8 @@ fn main() -> Result<()> {
             ApiCommand::Resolve { provider, app } => api::resolve(&provider, &app),
             ApiCommand::KeyStatus { provider } => api::key_status(&provider),
         },
-        Command::ProcessQueue => dependency_queue::process_queue(),\n        Command::QueueStatus => {\n            println!("{}", serde_json::to_string_pretty(&dependency_queue::status()?)?);\n            Ok(())\n        },\n        Command::Root => {
+        Command::ProcessQueue => dependency_queue::process_queue(),
+        Command::QueueStatus => {\n            println!("{}", serde_json::to_string_pretty(&dependency_queue::status()?)?);\n            Ok(())\n        },\n        Command::Root => {
             println!("{}", manager::root()?.display());
             Ok(())
         }
