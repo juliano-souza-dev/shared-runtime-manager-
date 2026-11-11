@@ -5,7 +5,7 @@ function note(message,error=false){const n=$("notice");n.textContent=message;n.c
 async function act(command,args={},message){try{await invoke(command,args);if(message)note(message);await load()}catch(e){note(String(e),true);throw e}}
 function esc(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function empty(t){return '<div class="empty">'+esc(t)+'</div>'}
-function isManagedSharedPath(path){const normalize=value=>String(value||"").replace(/\\/g,"/").replace(/\\/+$/,"").toLowerCase();const root=normalize(state.root),candidate=normalize(path);return !!root&&(candidate===root||candidate.startsWith(root+"/"))}
+function isManagedSharedPath(path){const normalize=value=>{let result=String(value||"").replaceAll("\\","/").toLowerCase();while(result.endsWith("/"))result=result.slice(0,-1);return result};const root=normalize(state.root),candidate=normalize(path);return !!root&&(candidate===root||candidate.startsWith(root+"/"))}
 function page(p){document.querySelectorAll(".page").forEach(x=>x.classList.add("hidden"));$("page-"+p).classList.remove("hidden");$("page-title").textContent=titles[p];document.querySelectorAll(".nav").forEach(x=>x.classList.toggle("active",x.dataset.page===p))}
 function delay(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
 function setRegistrationProgress(value,title,detail){$("registration-progress").classList.remove("hidden");$("progress-fill").style.width=Math.max(0,Math.min(100,value))+"%";$("progress-percent").textContent=Math.round(value)+"%";$("progress-title").textContent=title;$("progress-detail").textContent=detail}
