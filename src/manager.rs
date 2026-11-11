@@ -420,6 +420,10 @@ pub fn delete_resource(resource_id: &str) -> Result<()> {
 
     let mut users = Vec::new();
     for (app_id, app) in &registry.applications {
+        if app.resources.iter().any(|linked| linked == resource_id) {
+            users.push(format!("{} ({})", app.name, app_id));
+            continue;
+        }
         if app.installation_path.is_empty() { continue; }
         let config_path = PathBuf::from(&app.installation_path).join("shared.config.json");
         let Ok(bytes) = fs::read(&config_path) else { continue; };
