@@ -278,3 +278,14 @@ The desktop page **Biblioteca de dependências** is an inventory of resources re
 Provider presets are bundled in `assets/api-providers.json` and compiled into the application. Each entry documents the provider ID, display name, base endpoint, model-list endpoint, authentication style, API-key creation page, official documentation, and initial model suggestions. The current presets cover Groq, OpenAI, Anthropic, Google Gemini, DeepSeek, Mistral AI, and OpenRouter.
 
 The provider catalog is metadata, not an installer: cloud APIs are accessed over HTTPS and require an API key. The UI pre-fills the provider name and endpoint. After the key is stored in Windows Credential Manager, **Modelos** calls the provider's model-list endpoint and offers the models currently returned by that account. The bundled model suggestions are only an initial fallback; the live provider response is authoritative. Authentication differs by provider: Bearer token for OpenAI-compatible providers, Anthropic API-key/version headers for Claude, and a query-string API key for Gemini.
+
+
+## Synchronizing registered applications and removing dependencies
+
+The desktop **Applications** page provides a **Synchronize dependencies** action for every registered application. It re-reads the application's existing `shared.config.json`, preserves its dependency declarations, queues the required resources, reuses binaries already found on PATH or in Shared, and refreshes the resolved dependency links. If the configuration file is missing, Shared recreates its generated configuration before queueing the synchronization.
+
+The application list shows dependencies declared by the project as well as dependencies already resolved in its configuration. The dependency library identifies which applications still reference each dependency.
+
+A dependency cannot be deleted while a registered application declares or resolves it, while a legacy application link exists, or while it is waiting in the installation queue. The backend enforces these checks even if the UI is bypassed.
+
+Deletion is intentionally limited to files managed inside the central Shared Runtime directory. Shared can remove its own FFmpeg/FFprobe binaries, yt-dlp installation, and Whisper model directory. Dependencies discovered outside Shared (for example, Python or tools already installed elsewhere on PATH) are marked as external and are not deleted from the user's system.
