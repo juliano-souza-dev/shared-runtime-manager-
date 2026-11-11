@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "providers": [
+    {
+      "id": "groq",
+      "name": "Groq",
+      "endpoint": "https://api.groq.com/openai/v1",
+      "modelsEndpoint": "https://api.groq.com/openai/v1/models",
+      "auth": "bearer",
+      "keyUrl": "https://console.groq.com/keys",
+      "docsUrl": "https://console.groq.com/docs/api-reference",
+      "defaultModel": "llama-3.3-70b-versatile",
+      "models": [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "llama-3.1-70b-versatile",
+        "llama-3.2-1b-preview",
+        "llama-3.2-3b-preview",
+        "llama-guard-3-8b",
+        "meta-llama/llama-prompt-guard-2-22m",
+        "meta-llama/llama-prompt-guard-2-86m",
+        "llama-3.2-11b-vision-preview",
+        "llama-3.2-90b-vision-preview",
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "openai/gpt-oss-safeguard-20b",
+        "qwen/qwen3.8-27b",
+        "qwen-2.5-coder-32b",
+        "qwen-2.5-32b",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it",
+        "whisper-large-v3",
+        "whisper-large-v3-turbo",
+        "canopylabs/orpheus-v1-english",
+        "canopylabs/orpheus-arabic-saudi"
+      ]
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "endpoint": "https://api.openai.com/v1",
+      "modelsEndpoint": "https://api.openai.com/v1/models",
+      "auth": "bearer",
+      "keyUrl": "https://platform.openai.com/api-keys",
+      "docsUrl": "https://developers.openai.com/api/reference/overview",
+      "defaultModel": "gpt-6-luna",
+      "models": [
+        "gpt-6-astra",
+        "gpt-6.1-sol",
+        "gpt-6-luna"
+      ]
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic (Claude)",
+      "endpoint": "https://api.anthropic.com",
+      "modelsEndpoint": "https://api.anthropic.com/v1/models",
+      "auth": "anthropic",
+      "keyUrl": "https://platform.claude.com/settings/keys",
+      "docsUrl": "https://platform.claude.com/docs/en/api/overview",
+      "defaultModel": "claude-sonnet-4-5",
+      "models": [
+        "claude-opus-4-5",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5"
+      ]
+    },
+    {
+      "id": "google-gemini",
+      "name": "Google Gemini",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "modelsEndpoint": "https://generativelanguage.googleapis.com/v1beta/models",
+      "auth": "query",
+      "keyUrl": "https://aistudio.google.com/app/apikey",
+      "docsUrl": "https://ai.google.dev/api/models",
+      "defaultModel": "gemini-2.5-flash",
+      "models": [
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite"
+      ]
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "endpoint": "https://api.deepseek.com",
+      "modelsEndpoint": "https://api.deepseek.com/models",
+      "auth": "bearer",
+      "keyUrl": "https://platform.deepseek.com/api_keys",
+      "docsUrl": "https://api-docs.deepseek.com/api/list-models/",
+      "defaultModel": "deepseek-chat",
+      "models": [
+        "deepseek-chat",
+        "deepseek-reasoner"
+      ]
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral AI",
+      "endpoint": "https://api.mistral.ai/v1",
+      "modelsEndpoint": "https://api.mistral.ai/v1/models",
+      "auth": "bearer",
+      "keyUrl": "https://console.mistral.ai/api-keys",
+      "docsUrl": "https://docs.mistral.ai/api/endpoint/models",
+      "defaultModel": "mistral-small-latest",
+      "models": [
+        "mistral-large-latest",
+        "mistral-medium-latest",
+        "mistral-small-latest",
+        "open-mistral-nemo"
+      ]
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "endpoint": "https://openrouter.ai/api/v1",
+      "modelsEndpoint": "https://openrouter.ai/api/v1/models",
+      "auth": "bearer",
+      "keyUrl": "https://openrouter.ai/keys",
+      "docsUrl": "https://openrouter.ai/docs",
+      "defaultModel": "openai/gpt-4o-mini",
+      "models": [
+        "openai/gpt-4o-mini",
+        "anthropic/claude-sonnet-4",
+        "google/gemini-2.5-pro"
+      ]
+    }
+  ]
+}
