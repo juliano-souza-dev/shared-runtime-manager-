@@ -226,7 +226,9 @@ The desktop management interface is built with Tauri 2 and uses the same Rust li
 - Global API provider configuration.
 - Per-application API authorization and revocation.
 - API key updates through the Windows Credential Manager.
-- A dependency library that lists centrally installed resources across all applications.\n- Provider presets for Groq, OpenAI, Anthropic, Google Gemini, DeepSeek, Mistral, and OpenRouter.\n- Live model discovery from each provider after its API key is stored.
+- A dependency library that lists centrally installed resources across all applications.
+- Provider presets for Groq, OpenAI, Anthropic, Google Gemini, DeepSeek, Mistral, and OpenRouter.
+- Live model discovery from each provider after its API key is stored.
 
 Build the CLI and run the desktop app on Windows:
 
