@@ -403,7 +403,7 @@ fn extract_zip_safely(archive: &Path, destination: &Path) -> Result<()> {
         zip::ZipArchive::new(file).context("Downloaded SoX archive is not a valid ZIP")?;
     for index in 0..zip.len() {
         let mut entry = zip.by_index(index)?;
-        let Some(relative) = entry.enclosed_name().map(Path::to_path_buf) else {
+        let Some(relative) = entry.enclosed_name() else {
             continue;
         };
         if entry
