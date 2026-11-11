@@ -1,6 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use serde::Serialize;
-use shared_runtime_manager::{api, dependency_manager, manager};
+use std::sync::atomic::{AtomicBool, Ordering};
+use shared_runtime_manager::{api, dependency_queue, manager};
+
+static QUEUE_RUNNING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Serialize)]
 struct Dashboard {
@@ -24,7 +27,25 @@ fn dashboard_data() -> Result<Dashboard, String> {
 #[tauri::command]
 fn register_application(app_id: String, name: String, installation_path: String) -> Result<(), String> {
     manager::register_app_at_path(&app_id, &name, &installation_path).map_err(error_text)?;
-    dependency_manager::provision_application(&app_id, &installation_path).map_err(error_text)
+    dependency_queue::enqueue_application(&app_id, &installation_path).map_err(error_text)
+}
+#[tauri::command]
+fn delete_application(app_id: String) -> Result<(), String> {
+    manager::unregister_application(&app_id).map_err(error_text)?;
+    dependency_queue::remove_application(&app_id).map_err(error_text)
+}
+#[tauri::command]
+fn start_dependency_queue() -> Result<(), String> {
+    if QUEUE_RUNNING.swap(true, Ordering::SeqCst) { return Ok(()); }
+    std::thread::spawn(|| {
+        let _ = dependency_queue::process_queue();
+        QUEUE_RUNNING.store(false, Ordering::SeqCst);
+    });
+    Ok(())
+}
+#[tauri::command]
+fn dependency_queue_status() -> Result<serde_json::Value, String> {
+    dependency_queue::status().map_err(error_text)
 }
 #[tauri::command]
 fn install_shared_resource(resource: String, app_id: Option<String>) -> Result<(), String> {
@@ -49,8 +70,10 @@ fn save_api_key(provider: String, secret: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            dashboard_data, register_application, install_shared_resource,
-            save_api_provider, authorize_api, revoke_api, save_api_key
+            dashboard_data, register_application, delete_application,
+            start_dependency_queue, dependency_queue_status,
+            install_shared_resource, save_api_provider, authorize_api,
+            revoke_api, save_api_key
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Shared Runtime Manager");
