@@ -1,3 +1,4 @@
+mod api;
 mod manager;
 
 use anyhow::Result;
@@ -14,9 +15,7 @@ struct Cli {
 enum Command {
     /// Register an application that uses shared dependencies.
     Register {
-        /// Stable application identifier, e.g. ttk-media.
         app_id: String,
-        /// Human-readable application name.
         #[arg(long)]
         name: String,
     },
@@ -24,9 +23,7 @@ enum Command {
     Apps,
     /// Install or update a managed shared resource.
     Install {
-        /// Resource identifier. Currently supported: ffmpeg, sox (Windows).
         resource: String,
-        /// Application that should be linked to this resource.
         #[arg(long)]
         app: Option<String>,
     },
@@ -38,8 +35,49 @@ enum Command {
         #[arg(long)]
         app: Option<String>,
     },
+    /// Manage globally shared API configurations and credentials.
+    Api {
+        #[command(subcommand)]
+        command: ApiCommand,
+    },
     /// Print the shared runtime root directory.
     Root,
+}
+
+#[derive(Subcommand)]
+enum ApiCommand {
+    /// Create or update a global API configuration.
+    Add {
+        provider: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        endpoint: String,
+        #[arg(long)]
+        model: String,
+    },
+    /// Authorize an application to use a global API configuration.
+    Authorize {
+        provider: String,
+        #[arg(long)]
+        app: String,
+    },
+    /// Set the API secret. Reads the key from stdin, never from command arguments.
+    SetKey {
+        provider: String,
+    },
+    /// List API configurations without exposing secrets.
+    List,
+    /// Resolve an API configuration for an authorized application.
+    Resolve {
+        provider: String,
+        #[arg(long)]
+        app: String,
+    },
+    /// Check whether a secret exists in the operating-system credential store.
+    KeyStatus {
+        provider: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -50,6 +88,15 @@ fn main() -> Result<()> {
         Command::Install { resource, app } => manager::install(&resource, app.as_deref()),
         Command::Resources => manager::list_resources(),
         Command::Resolve { resource, app } => manager::resolve(&resource, app.as_deref()),
+        Command::Api { command } => match command {
+            ApiCommand::Add { provider, name, endpoint, model } =>
+                api::add(&provider, &name, &endpoint, &model),
+            ApiCommand::Authorize { provider, app } => api::authorize(&provider, &app),
+            ApiCommand::SetKey { provider } => api::set_key_from_stdin(&provider),
+            ApiCommand::List => api::list(),
+            ApiCommand::Resolve { provider, app } => api::resolve(&provider, &app),
+            ApiCommand::KeyStatus { provider } => api::key_status(&provider),
+        },
         Command::Root => {
             println!("{}", manager::root()?.display());
             Ok(())
