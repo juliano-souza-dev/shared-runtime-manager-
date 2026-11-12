@@ -6,7 +6,7 @@ The design goal is one active shared installation/configuration per resource, co
 
 ## Current status
 
-**Version 0.3.0.** The Windows CLI manages FFmpeg and SoX and now supports global API configuration metadata plus secrets stored in Windows Credential Manager. The API registry contains no API keys. Application authorization is explicit.
+**Version 0.5.0.** Shared Runtime manages local dependencies and provider credentials. API keys are protected with Windows DPAPI, stored in the local Shared registry, and provisioned in encrypted form only to each authorized application's `shared.config.json`. Application authorization is explicit.
 
 The API feature is an initial centralized storage layer. Direct application SDK integration, compatibility declarations, process-use leases, coordinated dependency updates, and a local inference service remain future work.
 
@@ -27,7 +27,7 @@ On Windows, data is stored under:
     └── sox/
 ```
 
-API secrets are stored separately in **Windows Credential Manager**, under service `JulianoDev.SharedRuntime.Api` and account `api:<provider-id>`. They are not written to JSON, command-line arguments, or application configuration files.
+API secrets are encrypted with **Windows DPAPI** for the current Windows user. The encrypted credential is stored in the local API registry and copied into the `shared.apiProviders` section of each authorized application's `shared.config.json`. Plaintext keys are never written to disk, command-line arguments, or logs.
 
 ## Build
 
@@ -55,7 +55,7 @@ Example:
 srm register nova-generator --name "Nova Generator" --path "C:\\Projects\\nova-generator"
 ```
 
-The generated file is the application-to-Shared contract, not a secret store. The application owns the declarations in `shared.dependencies` and `shared.providers`; Shared Runtime preserves them during registration and every resource refresh. Shared Runtime owns and refreshes `enabled`, `root`, `directories`, `files`, and `resources`. API keys remain in Windows Credential Manager. Invalid JSON or invalid declaration structures are not overwritten.
+The generated file is the application-to-Shared contract. The application owns the declarations in `shared.dependencies` and `shared.providers`; Shared Runtime preserves them during registration and every resource refresh. Shared Runtime owns and refreshes `enabled`, `root`, `directories`, `files`, `resources`, and `apiProviders`. The latter contains only the providers authorized for that application, with DPAPI-encrypted credentials. Invalid JSON or invalid declaration structures are not overwritten.
 
 ```json
 {
@@ -128,9 +128,9 @@ The Shared Runtime Manager validates that both properties are arrays, every entr
 
 Ownership is deliberately split:
 - **Application-owned:** `application`, `shared.dependencies`, and `shared.providers`.
-- **Shared-owned:** `schemaVersion`, `shared.enabled`, `shared.root`, `shared.directories`, `shared.files`, and `shared.resources`.
+- **Shared-owned:** `schemaVersion`, `shared.enabled`, `shared.root`, `shared.directories`, `shared.files`, `shared.resources`, and `shared.apiProviders`.
 
-`shared.resources` contains resolved absolute paths for resources actually installed and linked to that application. Declaring a dependency does not automatically install or link it yet; automatic dependency resolution/installation is a separate next capability. Provider declarations do not store API keys or grant authorization by themselves. Provider credentials and per-app authorization remain in the global API registry and Windows Credential Manager.
+`shared.resources` contains resolved absolute paths for resources actually installed and linked to that application. `shared.providers` remains an application-owned declaration list and does not grant access by itself. Actual authorization is managed centrally; Shared materializes the authorized provider settings and encrypted credential in `shared.apiProviders`.
 
 Applications should resolve their shared paths from this file at startup. They must not hardcode the Shared Runtime installation directory or copy centrally managed resources into their own project folders.
 
@@ -186,20 +186,22 @@ srm api resolve groq --app ttk-media
 
 ### Application integration contract
 
-Windows desktop applications should use the same OS credential-store entry when retrieving a secret:
+Applications consume provider settings from their own generated `shared.config.json`; the Shared desktop application does not need to remain open.
 
-- Credential service: `JulianoDev.SharedRuntime.Api`
-- Credential account: `api:<provider-id>`
-- Secret storage: Windows Credential Manager
-- Non-secret configuration: `registry/apis.json`
-- Authorization: the application's ID must be present in that provider's `authorized_apps` list.
+The Rust library exposes these functions:
 
-The application must not copy the key into its own settings file, logs, crash reports, or command-line arguments. The Rust manager's internal accessor checks the authorization registry before returning a secret. A stable public SDK/IPC interface is planned so applications do not need to implement credential-store access independently.
+- `providers_for_app(app_id)`: obtains the encrypted providers provisioned for an application.
+- `get_provider_settings_from_config(config_path, app_id, provider_id)`: loads one provider and verifies the application identity.
+- `get_provider_credential_from_config(config_path, app_id, provider_id)`: decrypts the credential for backend use.
+- `get_authorized_providers_from_config(config_path, app_id)`: lists the provisioned providers without exposing plaintext keys.
+
+The credential is encrypted with Windows DPAPI for the current Windows user. Each application should retrieve it only in its Rust backend and must never send it to the frontend, logs, crash reports, or command-line arguments. DPAPI protects credentials at rest; it is not an isolation boundary against malicious processes running as the same Windows user.
 
 ## Security and lifecycle notes
 
-- API keys are stored through the Windows native credential backend provided by the keyring crate.
-- API metadata and authorization lists are stored in the shared registry; secrets are not.
+- API keys are encrypted with Windows DPAPI before being written to local JSON files.
+- The local API registry is the source of truth; each application's config receives only the providers authorized for that application.
+- Existing credentials in Windows Credential Manager are migrated to DPAPI-encrypted storage when the registry is next read.
 - The CLI never prints API secrets.
 - Applications are authorized per provider.
 - Do not pass API keys as command-line arguments. Use standard input as shown above.
@@ -225,7 +227,7 @@ The desktop management interface is built with Tauri 2 and uses the same Rust li
 - Visual application registration.
 - Global API provider configuration.
 - Per-application API authorization and revocation.
-- API key updates through the Windows Credential Manager.
+- API key updates using Windows DPAPI and per-application config provisioning.
 - A dependency library that lists centrally installed resources across all applications.
 - Provider presets for Groq, OpenAI, Anthropic, Google Gemini, DeepSeek, Mistral, and OpenRouter.
 - Live model discovery from each provider after its API key is stored.
@@ -237,7 +239,7 @@ cargo build --release
 cargo run --release --features desktop --bin srm-gui
 ```
 
-The GUI feature is optional, so the existing CLI and its CI checks remain independent of the desktop runtime. The desktop interface currently targets Windows because protected API credential storage is Windows-only. API keys are entered into a password field and passed directly to the native credential store; they are never returned to the UI or written to the shared JSON registry.
+The GUI feature is optional, so the existing CLI and its CI checks remain independent of the desktop runtime. The desktop interface currently targets Windows because DPAPI-protected API credential storage is Windows-only. API keys are entered into a password field, encrypted by the backend, and never returned to the UI in plaintext.
 
 The first desktop release is a local management interface, not a background Windows service. Application discovery, signed app identity, compatibility approvals, update coordination, and a brokered SDK/IPC remain separate roadmap items.
 
@@ -264,7 +266,7 @@ The dependency IDs are independent. FFmpeg and FFprobe may arrive in the same ar
 
 Provisioned shared dependency paths are written to `shared.dependencies`. Application-owned directories are created below the application's own `data/` directory and exposed as `application.data`: `projects`, `database`, `sounds`, `logs`, and `user-files`. These directories are never shared between applications.
 
-Groq is a cloud provider, not a downloadable local dependency. Its non-secret settings remain in `registry/apis.json`; API credentials remain in Windows Credential Manager.
+Groq is a cloud provider, not a downloadable local dependency. Its provider settings and DPAPI-encrypted credential are stored in the local API registry and provisioned into each authorized application's `shared.config.json`.
 
 Python is reused when present. On Windows, if Python is missing and Windows Package Manager is available, Shared requests Python 3.12 through winget. Missing Faster-Whisper and PyAV Python packages are installed into the selected Python environment only after import checks show they are absent.
 
@@ -277,7 +279,7 @@ The desktop page **Biblioteca de dependências** is an inventory of resources re
 
 Provider presets are bundled in `assets/api-providers.json` and compiled into the application. Each entry documents the provider ID, display name, base endpoint, model-list endpoint, authentication style, API-key creation page, official documentation, and initial model suggestions. The current presets cover Groq, OpenAI, Anthropic, Google Gemini, DeepSeek, Mistral AI, and OpenRouter.
 
-The provider catalog is metadata, not an installer: cloud APIs are accessed over HTTPS and require an API key. The UI pre-fills the provider name and endpoint. After the key is stored in Windows Credential Manager, **Modelos** calls the provider's model-list endpoint and offers the models currently returned by that account. The bundled model suggestions are only an initial fallback; the live provider response is authoritative. Authentication differs by provider: Bearer token for OpenAI-compatible providers, Anthropic API-key/version headers for Claude, and a query-string API key for Gemini.
+The provider catalog is metadata, not an installer: cloud APIs are accessed over HTTPS and require an API key. The UI pre-fills the provider name and endpoint. After the key is stored in the local encrypted API registry, **Modelos** calls the provider's model-list endpoint and offers the models currently returned by that account. The bundled model suggestions are only an initial fallback; the live provider response is authoritative. Authentication differs by provider: Bearer token for OpenAI-compatible providers, Anthropic API-key/version headers for Claude, and a query-string API key for Gemini.
 
 
 ## Synchronizing registered applications and removing dependencies
