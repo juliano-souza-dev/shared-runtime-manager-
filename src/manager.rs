@@ -224,7 +224,7 @@ pub fn register_app_at_path(app_id: &str, name: &str, installation_path: &str) -
 }
 
 /// Refresh generated configuration files after the shared resource registry changes.
-fn refresh_application_configs(shared_root: &Path) -> Result<()> {
+pub(crate) fn refresh_application_configs(shared_root: &Path) -> Result<()> {
     let registry = read_registry(shared_root)?;
     for (app_id, app) in &registry.applications {
         write_application_config(shared_root, app_id, app)?;
@@ -294,6 +294,8 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
         "apiProviders": shared_root.join("registry/apis.json").display().to_string()
     });
     shared["resources"] = serde_json::to_value(installed_resources)?;
+    // API providers are Shared-owned and are materialized only for authorized applications.
+    shared["apiProviders"] = serde_json::to_value(super::api::providers_for_app(app_id)?)?;
 
     document["schemaVersion"] = serde_json::Value::String("1.0".to_owned());
     document["application"] = application;
