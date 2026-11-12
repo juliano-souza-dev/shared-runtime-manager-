@@ -351,19 +351,18 @@ pub fn providers_for_app(app: &str) -> Result<Vec<ProviderRuntimeConfig>> {
     migrate_legacy_credentials()?;
     let registry = read_registry()?;
     registry.providers.into_iter()
-        .filter(|(_, config)| config.authorized_apps.contains(app))
+        .filter(|(_, config)| config.authorized_apps.contains(app) && config.credential.is_some())
         .map(|(id, config)| {
-            let credential = config.credential
-                .ok_or_else(|| anyhow!("Provider '{id}' is authorized for '{app}' but has no API key."))?;
-            Ok(ProviderRuntimeConfig {
+            let credential = config.credential.expect("filtered provider has a credential");
+            ProviderRuntimeConfig {
                 id,
                 name: config.name,
                 endpoint: config.endpoint,
                 model: config.model,
                 credential,
-            })
+            }
         })
-        .collect()
+        .collect::<Vec<_>>();
 }
 
 /// Reads a provider configuration from the application's own shared.config.json.
