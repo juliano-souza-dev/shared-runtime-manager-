@@ -431,11 +431,6 @@ pub fn get_authorized_providers_from_config(
 
 // Legacy Credential Manager support is retained only to migrate existing installations.
 #[cfg(windows)]
-fn credential_entry(provider: &str) -> Result<keyring::Entry> {
-    Ok(keyring::Entry::new(CREDENTIAL_SERVICE, &format!("api:{provider}"))?)
-}
-
-#[cfg(windows)]
 fn migrate_legacy_credentials() -> Result<()> {
     let mut registry = read_registry()?;
     let mut changed = false;
@@ -463,7 +458,7 @@ fn encrypt_credential(secret: &str) -> Result<EncryptedCredential> {
     use std::{ffi::c_void, ptr::null, slice};
     use windows_sys::Win32::{
         Security::Cryptography::{CryptProtectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN},
-        System::Memory::LocalFree,
+        Foundation::LocalFree,
     };
     let input_bytes = secret.as_bytes();
     let input = CRYPT_INTEGER_BLOB {
@@ -492,7 +487,7 @@ fn decrypt_credential(credential: &EncryptedCredential) -> Result<String> {
     use std::{ffi::c_void, ptr::{null, null_mut}, slice};
     use windows_sys::Win32::{
         Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN},
-        System::Memory::LocalFree,
+        Foundation::LocalFree,
     };
     if credential.kind != "dpapi" {
         bail!("Unsupported API credential encryption type '{}'.", credential.kind);
