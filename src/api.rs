@@ -350,7 +350,7 @@ pub fn providers_for_app(app: &str) -> Result<Vec<ProviderRuntimeConfig>> {
     validate_id(app)?;
     migrate_legacy_credentials()?;
     let registry = read_registry()?;
-    registry.providers.into_iter()
+    Ok(registry.providers.into_iter()
         .filter(|(_, config)| config.authorized_apps.contains(app) && config.credential.is_some())
         .map(|(id, config)| {
             let credential = config.credential.expect("filtered provider has a credential");
@@ -362,7 +362,7 @@ pub fn providers_for_app(app: &str) -> Result<Vec<ProviderRuntimeConfig>> {
                 credential,
             }
         })
-        .collect::<Vec<_>>();
+        .collect())
 }
 
 /// Reads a provider configuration from the application's own shared.config.json.
