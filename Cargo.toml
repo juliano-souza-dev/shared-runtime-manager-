@@ -34,7 +34,7 @@ tauri = { version = "2", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3", default-features = false, features = ["windows-native"] }
-windows-sys = { version = "0.59", features = ["Win32_Security_Cryptography", "Win32_System_Memory"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
 
 [build-dependencies]
 tauri-build = "2"
