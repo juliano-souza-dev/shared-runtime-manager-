@@ -566,7 +566,8 @@ pub fn install(resource: &str, app_id: Option<&str>) -> Result<()> {
     match resource {
         "ffmpeg" => install_ffmpeg(app_id),
         "sox" => install_sox(app_id),
-        other => bail!("Unknown resource '{other}'. Available resources: ffmpeg, sox."),
+        "forced-alignment" => super::dependency_queue::install_dependency(resource, app_id),
+        other => bail!("Unknown resource '{other}'. Available resources: ffmpeg, sox, forced-alignment."),
     }
 }
 
