@@ -6,7 +6,7 @@ The design goal is one active shared installation/configuration per resource, co
 
 ## Current status
 
-**Version 0.5.0.** Shared Runtime manages local dependencies and provider credentials. API keys are protected with Windows DPAPI, stored in the local Shared registry, and provisioned in encrypted form only to each authorized application's `shared.config.json`. Application authorization is explicit.
+**Version 0.6.0.** Shared Runtime manages local dependencies and provider credentials. API keys are protected with Windows DPAPI, stored in the local Shared registry, and provisioned in encrypted form only to each authorized application's `shared.config.json`. Application authorization is explicit.
 
 The API feature is an initial centralized storage layer. Direct application SDK integration, compatibility declarations, process-use leases, coordinated dependency updates, and a local inference service remain future work.
 
@@ -133,6 +133,30 @@ Ownership is deliberately split:
 `shared.resources` contains resolved absolute paths for resources actually installed and linked to that application. `shared.providers` remains an application-owned declaration list and does not grant access by itself. Actual authorization is managed centrally; Shared materializes the authorized provider settings and encrypted credential in `shared.apiProviders`.
 
 Applications should resolve their shared paths from this file at startup. They must not hardcode the Shared Runtime installation directory or copy centrally managed resources into their own project folders.
+
+## Forced Alignment runtime
+
+Forced Alignment is an optional, centrally managed resource for applications that need word-level timestamps from an existing transcript.
+
+Declare it in the application-owned `shared.dependencies` list:
+
+```json
+{ "id": "forced-alignment", "required": false }
+```
+
+Install it on demand for an authorized, registered application:
+
+```powershell
+srm install forced-alignment --app nova-generator
+```
+
+Shared creates an isolated Python virtual environment under `runtimes/forced-alignment/venv`, installs WhisperX there, and provisions the JSON-lines worker at `runtimes/forced-alignment/runner.py`. It does not modify the application's Python environment or the global Python site-packages.
+
+The worker accepts one alignment request per input line and returns one JSON result per output line. It keeps acoustic alignment models loaded for the lifetime of the process, cached by language. Hugging Face and Torch model caches are stored under the central Shared `models/forced-alignment` directory. CPU is supported; CUDA is selected automatically when available.
+
+The resolved runtime directory is provisioned to declaring applications as `shared.resources.forced-alignment`. Applications must read this absolute path from their own generated `shared.config.json`; they must not construct or hardcode the Shared root, Python executable, worker path, or model-cache path.
+
+The resource is optional so registering or synchronizing an application does not unexpectedly trigger a large PyTorch/WhisperX download. It is installed explicitly when the feature is enabled.
 
 ## Shared dependencies
 
