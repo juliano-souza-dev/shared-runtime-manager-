@@ -79,11 +79,11 @@ fn install_shared_resource(resource_id: String, app_id: Option<String>) -> Resul
         let _ = write_status("installing", 0, &format!("Preparando instalação de {resource_id}"), serde_json::json!([]));
         match manager::install(&resource_id, app_id.as_deref()) {
             Ok(()) => {
-                let result = serde_json::json!([{"id":resource_id,"status":"installed","message":"Recurso instalado e vínculos atualizados."}]);
+                let result = serde_json::json!([{"id":resource_id.clone(),"status":"installed","message":"Recurso instalado e vínculos atualizados."}]);
                 let _ = write_status("completed", 100, &format!("Instalação de {resource_id} concluída"), result);
             }
             Err(error) => {
-                let result = serde_json::json!([{"id":resource_id,"status":"error","message":format!("{error:#}")}]);
+                let result = serde_json::json!([{"id":resource_id.clone(),"status":"error","message":format!("{error:#}")}]);
                 let _ = write_status("error", 0, &format!("Falha ao instalar {resource_id}"), result);
             }
         }
