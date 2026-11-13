@@ -18,7 +18,7 @@ const YT_DLP_LINUX: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/dow
 /// Spawn dependency tools without opening a separate Windows console window.
 /// All stdout/stderr handling stays inside the Shared Runtime Manager.
 fn silent_command<S: AsRef<OsStr>>(program: S) -> Command {
-    let mut command = silent_command(program);
+    let mut command = Command::new(program);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -67,9 +67,9 @@ fn download(url: &str, destination: &Path) -> Result<()> {
 
 fn command_output(command: &str, argument: &str) -> Option<String> {
     #[cfg(windows)]
-    let output = Command::new("where").arg(command).output().ok()?;
+    let output = silent_command("where").arg(command).output().ok()?;
     #[cfg(not(windows))]
-    let output = Command::new("which").arg(command).output().ok()?;
+    let output = silent_command("which").arg(command).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -113,7 +113,7 @@ fn find_python() -> Option<String> {
     for candidate in ["python", "python3", "py"] {
         if command_exists(candidate) {
             let check = if candidate == "py" {
-                Command::new(candidate).args(["-3", "--version"]).output()
+                silent_command(candidate).args(["-3", "--version"]).output()
             } else {
                 Command::new(candidate).arg("--version").output()
             };
@@ -134,7 +134,7 @@ fn ensure_python() -> Result<String> {
     {
         if command_exists("winget") {
             println!("Python was not found. Installing Python 3.12 through Windows Package Manager...");
-            let status = Command::new("winget")
+            let status = silent_command("winget")
                 .args([
                     "install", "--id", "Python.Python.3.12", "--exact",
                     "--silent", "--accept-package-agreements", "--accept-source-agreements",
@@ -154,7 +154,7 @@ fn ensure_python() -> Result<String> {
 
 fn run_python(python: &str, args: &[&str]) -> Result<()> {
     let status = if python == "py" {
-        Command::new(python).arg("-3").args(args).status()?
+        silent_command(python).arg("-3").args(args).status()?
     } else {
         Command::new(python).args(args).status()?
     };
@@ -323,7 +323,7 @@ fn ensure_forced_alignment(root: &Path) -> Result<PathBuf> {
 
     if !python_module_exists(&interpreter, "whisperx") {
         println!("Installing WhisperX and its acoustic-alignment dependencies in Shared...");
-        let status = Command::new(&interpreter)
+        let status = silent_command(&interpreter)
             .args(["-m", "pip", "install", "whisperx"])
             .status()
             .context("Could not start pip in the Shared Forced Alignment environment")?;
