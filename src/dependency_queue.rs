@@ -144,6 +144,12 @@ fn refresh_registered_configs(root: &Path, resolved: &Value) -> Result<()> {
             }
         }
         let resolved_count = app_resolved.len();
+        let mut shared_resources = config.pointer("/shared/resources")
+            .filter(|value| value.is_object()).cloned().unwrap_or_else(|| json!({}));
+        for (id, path) in &app_resolved {
+            shared_resources[id] = Value::String(path.clone());
+        }
+        config["shared"]["resources"] = shared_resources;
         config["shared"]["resolvedDependencies"] = serde_json::to_value(app_resolved)?;
         config["shared"]["dependencyStatus"] = json!({
             "updatedAt": chrono_placeholder_timestamp(),
