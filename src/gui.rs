@@ -67,7 +67,7 @@ fn install_shared_resource(resource_id: String, app_id: Option<String>) -> Resul
                 "status": status,
                 "progress": progress,
                 "current": current,
-                "application": app_id,
+                "application": app_id.clone(),
                 "completed": if progress == 100 { 1 } else { 0 },
                 "total": 1,
                 "results": results
