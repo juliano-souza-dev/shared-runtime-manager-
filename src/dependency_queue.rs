@@ -256,6 +256,19 @@ pub fn status() -> Result<Value> {
     read_json(&status_path(&root))
 }
 
+/// Update the visible progress while a single shared resource is being provisioned.
+pub(crate) fn report_install_progress(progress: u32, current: &str) -> Result<()> {
+    let root = root()?;
+    write_json(&status_path(&root), &json!({
+        "status":"installing",
+        "progress":progress.min(99),
+        "current":current,
+        "completed":0,
+        "total":1,
+        "results":[]
+    }))
+}
+
 pub fn remove_application(app_id: &str) -> Result<()> {
     let root = root()?;
     let path = queue_path(&root);
