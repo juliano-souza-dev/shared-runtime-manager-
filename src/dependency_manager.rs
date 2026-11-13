@@ -21,6 +21,7 @@ const DEFAULT_DEPENDENCIES: &[(&str, bool)] = &[
     ("faster-whisper", true),
     ("pyav", true),
     ("whisper-models", true),
+    ("forced-alignment", false),
 ];
 
 fn shared_root() -> Result<PathBuf> {
@@ -256,6 +257,75 @@ fn ensure_yt_dlp(root: &Path) -> Result<PathBuf> {
     Ok(directory)
 }
 
+fn python_command(python: &str, args: &[&str]) -> Result<()> {
+    let status = if python == "py" {
+        Command::new(python).arg("-3").args(args).status()?
+    } else {
+        Command::new(python).args(args).status()?
+    };
+    if !status.success() {
+        bail!("Python command failed: {}", args.join(" "));
+    }
+    Ok(())
+}
+
+fn venv_python(venv: &Path) -> PathBuf {
+    if cfg!(windows) {
+        venv.join("Scripts").join("python.exe")
+    } else {
+        venv.join("bin").join("python")
+    }
+}
+
+fn python_module_exists(python: &Path, module: &str) -> bool {
+    Command::new(python)
+        .args(["-c", &format!("import {module}")])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+/// Provisions WhisperX in a Shared-owned virtual environment. The application's
+/// own Python installation and site-packages are never modified.
+fn ensure_forced_alignment(root: &Path) -> Result<PathBuf> {
+    let runtime = root.join("runtimes/forced-alignment");
+    let venv = runtime.join("venv");
+    let interpreter = venv_python(&venv);
+    fs::create_dir_all(&runtime)?;
+    fs::create_dir_all(root.join("models/forced-alignment"))?;
+
+    if !interpreter.is_file() {
+        let base_python = ensure_python()?;
+        println!("Creating the isolated Shared Forced Alignment Python environment...");
+        if base_python == "py" {
+            python_command(&base_python, &["-3", "-m", "venv", venv.to_string_lossy().as_ref()])?;
+        } else {
+            python_command(&base_python, &["-m", "venv", venv.to_string_lossy().as_ref()])?;
+        }
+    }
+
+    if !python_module_exists(&interpreter, "whisperx") {
+        println!("Installing WhisperX and its acoustic-alignment dependencies in Shared...");
+        let status = Command::new(&interpreter)
+            .args(["-m", "pip", "install", "whisperx"])
+            .status()
+            .context("Could not start pip in the Shared Forced Alignment environment")?;
+        if !status.success() {
+            bail!("WhisperX installation failed. The Shared virtual environment was preserved for diagnosis.");
+        }
+    }
+
+    let runner = runtime.join("runner.py");
+    let runner_source = include_str!("../assets/forced_alignment/runner.py");
+    if !runner.is_file() || fs::read_to_string(&runner).ok().as_deref() != Some(runner_source) {
+        fs::write(&runner, runner_source)
+            .with_context(|| format!("Could not provision {}", runner.display()))?;
+    }
+
+    println!("Forced Alignment runtime is ready: {}", runtime.display());
+    Ok(runtime)
+}
+
 pub(crate) fn ensure_dependency(root: &Path, id: &str) -> Result<PathBuf> {
     match id {
         "ffmpeg" => ensure_ffmpeg_component(root, "ffmpeg", if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" }),
@@ -279,6 +349,7 @@ pub(crate) fn ensure_dependency(root: &Path, id: &str) -> Result<PathBuf> {
             fs::create_dir_all(&directory)?;
             Ok(directory)
         }
+        "forced-alignment" => ensure_forced_alignment(root)
         other => bail!("Unknown dependency '{other}'. No installer is registered in the Shared catalog."),
     }
 }
