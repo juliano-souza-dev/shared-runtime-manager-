@@ -45,9 +45,10 @@ pub fn enqueue_application(app_id: &str, installation_path: &str) -> Result<()> 
         .with_context(|| format!("Could not read {}", config_path.display()))?)?;
     let dependencies = dependencies_for(&config);
     let mut config = config;
+    // Keep the root compatibility list limited to auto-installed requirements,
+    // but preserve the full application-owned shared.dependencies declarations,
+    // including optional resources that can be installed explicitly later.
     config["dependencies"] = Value::Array(dependencies.iter().map(|id| json!({"id":id,"required":true})).collect());
-    let declared = config["dependencies"].clone();
-    config["shared"]["dependencies"] = declared;
     let data_root = PathBuf::from(installation_path).join("data");
     let mut app_data = BTreeMap::<String, String>::new();
     for name in ["projects", "database", "sounds", "logs", "user-files"] {
