@@ -310,9 +310,11 @@ fn ensure_forced_alignment(root: &Path) -> Result<PathBuf> {
     fs::create_dir_all(&runtime)?;
     fs::create_dir_all(root.join("models/forced-alignment"))?;
 
+    super::dependency_queue::report_install_progress(5, "Preparando o ambiente isolado do WhisperX")?;
     if !interpreter.is_file() {
+        super::dependency_queue::report_install_progress(10, "Localizando Python para criar o ambiente do WhisperX")?;
         let base_python = ensure_python()?;
-        println!("Creating the isolated Shared Forced Alignment Python environment...");
+        super::dependency_queue::report_install_progress(20, "Criando ambiente virtual exclusivo do Shared Runtime")?;
         let venv_path = venv.to_string_lossy().into_owned();
         if base_python == "py" {
             python_command(&base_python, &["-3", "-m", "venv", &venv_path])?;
@@ -321,24 +323,43 @@ fn ensure_forced_alignment(root: &Path) -> Result<PathBuf> {
         }
     }
 
+    super::dependency_queue::report_install_progress(35, "Verificando se WhisperX já está instalado")?;
     if !python_module_exists(&interpreter, "whisperx") {
-        println!("Installing WhisperX and its acoustic-alignment dependencies in Shared...");
-        let status = silent_command(&interpreter)
+        super::dependency_queue::report_install_progress(40, "Instalando WhisperX, PyTorch e dependências. Esta etapa pode demorar.")?;
+        let output = silent_command(&interpreter)
+            .args(["-m", "pip", "install", "--upgrade", "pip"])
+            .output()
+            .context("Não foi possível atualizar o pip no ambiente isolado do WhisperX")?;
+        if !output.status.success() {
+            let detail = String::from_utf8_lossy(&output.stderr);
+            bail!("Falha ao preparar o pip do WhisperX: {}", detail.trim());
+        }
+        super::dependency_queue::report_install_progress(50, "Baixando e instalando WhisperX e dependências de alinhamento")?;
+        let output = silent_command(&interpreter)
             .args(["-m", "pip", "install", "whisperx"])
-            .status()
-            .context("Could not start pip in the Shared Forced Alignment environment")?;
-        if !status.success() {
-            bail!("WhisperX installation failed. The Shared virtual environment was preserved for diagnosis.");
+            .output()
+            .context("Não foi possível iniciar o pip no ambiente isolado do Shared Runtime")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let detail = if !stderr.trim().is_empty() { stderr.trim() } else { stdout.trim() };
+            let detail: String = detail.chars().rev().take(3500).collect::<String>().chars().rev().collect();
+            bail!("A instalação do WhisperX falhou. Detalhes do pip: {detail}");
         }
     }
 
+    super::dependency_queue::report_install_progress(90, "Preparando o executor de alinhamento do Nova Generator")?;
     let runner = runtime.join("runner.py");
     let runner_source = include_str!("../assets/forced_alignment/runner.py");
     if !runner.is_file() || fs::read_to_string(&runner).ok().as_deref() != Some(runner_source) {
         fs::write(&runner, runner_source)
-            .with_context(|| format!("Could not provision {}", runner.display()))?;
+            .with_context(|| format!("Não foi possível preparar {}", runner.display()))?;
     }
 
+    super::dependency_queue::report_install_progress(98, "Validando o runtime compartilhado do WhisperX")?;
+    if !interpreter.is_file() || !runner.is_file() || !python_module_exists(&interpreter, "whisperx") {
+        bail!("O runtime do WhisperX não passou na validação final. Verifique a instalação do Python e tente novamente.");
+    }
     println!("Forced Alignment runtime is ready: {}", runtime.display());
     Ok(runtime)
 }
