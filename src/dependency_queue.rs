@@ -232,3 +232,27 @@ pub fn set_failure(message: &str) -> Result<()> {
         "error":message,"results":[]
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn optional_resources_are_not_queued_but_can_be_linked_when_installed() {
+        let config = json!({
+            "dependencies": [
+                {"id": "ffmpeg", "required": true}
+            ],
+            "shared": {
+                "dependencies": [
+                    {"id": "ffmpeg", "required": true},
+                    {"id": "forced-alignment", "required": false}
+                ]
+            }
+        });
+
+        assert_eq!(dependencies_for(&config), vec!["ffmpeg".to_owned()]);
+        let linked = dependencies_for_without_default(&config);
+        assert!(linked.contains(&"forced-alignment".to_owned()));
+    }
+}
