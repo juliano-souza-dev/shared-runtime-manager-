@@ -52,6 +52,46 @@ fn synchronize_application(app_id: String) -> Result<(), String> {
     start_dependency_queue()
 }
 #[tauri::command]
+fn install_shared_resource(resource_id: String, app_id: Option<String>) -> Result<(), String> {
+    if QUEUE_RUNNING.swap(true, Ordering::SeqCst) {
+        return Err("Já existe um processamento em andamento. Aguarde antes de iniciar outra instalação.".to_owned());
+    }
+    std::thread::spawn(move || {
+        let write_status = |status: &str, progress: u32, current: &str, results: serde_json::Value| -> Result<(), String> {
+            let root = manager::root().map_err(error_text)?;
+            let registry = root.join("registry");
+            std::fs::create_dir_all(&registry).map_err(error_text)?;
+            let target = registry.join("dependency-queue-status.json");
+            let temporary = registry.join("dependency-queue-status.json.tmp");
+            let value = serde_json::json!({
+                "status": status,
+                "progress": progress,
+                "current": current,
+                "application": app_id,
+                "completed": if progress == 100 { 1 } else { 0 },
+                "total": 1,
+                "results": results
+            });
+            std::fs::write(&temporary, serde_json::to_vec_pretty(&value).map_err(error_text)?).map_err(error_text)?;
+            if target.exists() { std::fs::remove_file(&target).map_err(error_text)?; }
+            std::fs::rename(&temporary, &target).map_err(error_text)
+        };
+        let _ = write_status("installing", 0, &format!("Preparando instalação de {resource_id}"), serde_json::json!([]));
+        match manager::install(&resource_id, app_id.as_deref()) {
+            Ok(()) => {
+                let result = serde_json::json!([{"id":resource_id,"status":"installed","message":"Recurso instalado e vínculos atualizados."}]);
+                let _ = write_status("completed", 100, &format!("Instalação de {resource_id} concluída"), result);
+            }
+            Err(error) => {
+                let result = serde_json::json!([{"id":resource_id,"status":"error","message":format!("{error:#}")}]);
+                let _ = write_status("error", 0, &format!("Falha ao instalar {resource_id}"), result);
+            }
+        }
+        QUEUE_RUNNING.store(false, Ordering::SeqCst);
+    });
+    Ok(())
+}
+#[tauri::command]
 fn delete_shared_dependency(dependency_id: String) -> Result<(), String> {
     manager::delete_resource(&dependency_id).map_err(error_text)
 }
@@ -94,7 +134,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             dashboard_data, register_application, delete_application, synchronize_application, delete_shared_dependency,
-            start_dependency_queue, dependency_queue_status,
+            start_dependency_queue, dependency_queue_status, install_shared_resource,
             provider_catalog, available_api_models, save_api_provider, authorize_api,
             revoke_api, save_api_key
         ])
