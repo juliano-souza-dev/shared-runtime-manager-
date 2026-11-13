@@ -27,10 +27,8 @@ fn dependencies_for(config: &Value) -> Vec<String> {
     let declared_count = top.map(|items| items.len()).unwrap_or(0) + shared.map(|items| items.len()).unwrap_or(0);
     let mut ids = BTreeSet::new();
     for value in top.into_iter().flatten().chain(shared.into_iter().flatten()) {
-        // Optional declarations are also linked when the resource is installed
-        // explicitly. Only required declarations enter the automatic install queue.
-        if let Some(id) = value.get("id").and_then(Value::as_str) {
-            ids.insert(id.to_owned());
+        if value.get("required").and_then(Value::as_bool).unwrap_or(true) {
+            if let Some(id) = value.get("id").and_then(Value::as_str) { ids.insert(id.to_owned()); }
         }
     }
     if declared_count == 0 {
@@ -161,8 +159,9 @@ fn dependencies_for_without_default(config: &Value) -> Vec<String> {
     let shared = config.pointer("/shared/dependencies").and_then(Value::as_array);
     let mut ids = BTreeSet::new();
     for value in top.into_iter().flatten().chain(shared.into_iter().flatten()) {
-        if value.get("required").and_then(Value::as_bool).unwrap_or(true) {
-            if let Some(id) = value.get("id").and_then(Value::as_str) { ids.insert(id.to_owned()); }
+        // Link optional declarations too, but only when their resource is installed.
+        if let Some(id) = value.get("id").and_then(Value::as_str) {
+            ids.insert(id.to_owned());
         }
     }
     ids.into_iter().collect()
