@@ -455,6 +455,13 @@ mod tests {
     }
 
     #[test]
+    fn forced_alignment_is_optional_by_default() {
+        let dependencies = default_contract()["dependencies"].as_array().unwrap().clone();
+        let alignment = dependencies.iter().find(|item| item["id"] == "forced-alignment").unwrap();
+        assert_eq!(alignment["required"], false);
+    }
+
+    #[test]
     fn default_contract_contains_requested_python_dependencies() {
         let dependencies = default_contract()["dependencies"].as_array().unwrap().clone();
         let ids: Vec<&str> = dependencies.iter().filter_map(|item| item["id"].as_str()).collect();
