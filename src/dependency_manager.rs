@@ -352,7 +352,7 @@ pub(crate) fn ensure_dependency(root: &Path, id: &str) -> Result<PathBuf> {
             fs::create_dir_all(&directory)?;
             Ok(directory)
         }
-        "forced-alignment" => ensure_forced_alignment(root)
+        "forced-alignment" => ensure_forced_alignment(root),
         other => bail!("Unknown dependency '{other}'. No installer is registered in the Shared catalog."),
     }
 }
