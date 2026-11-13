@@ -278,8 +278,10 @@ fn venv_python(venv: &Path) -> PathBuf {
 }
 
 fn python_module_exists(python: &Path, module: &str) -> bool {
+    let script = format!("import {module}");
     Command::new(python)
-        .args(["-c", &format!("import {module}")])
+        .arg("-c")
+        .arg(script)
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false)
