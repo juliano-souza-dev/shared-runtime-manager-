@@ -27,8 +27,10 @@ fn dependencies_for(config: &Value) -> Vec<String> {
     let declared_count = top.map(|items| items.len()).unwrap_or(0) + shared.map(|items| items.len()).unwrap_or(0);
     let mut ids = BTreeSet::new();
     for value in top.into_iter().flatten().chain(shared.into_iter().flatten()) {
-        if value.get("required").and_then(Value::as_bool).unwrap_or(true) {
-            if let Some(id) = value.get("id").and_then(Value::as_str) { ids.insert(id.to_owned()); }
+        // Optional declarations are also linked when the resource is installed
+        // explicitly. Only required declarations enter the automatic install queue.
+        if let Some(id) = value.get("id").and_then(Value::as_str) {
+            ids.insert(id.to_owned());
         }
     }
     if declared_count == 0 {
@@ -169,6 +171,38 @@ fn chrono_placeholder_timestamp() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
+/// Installs an optional Shared resource on demand and links it to every
+/// registered application that declares it in shared.dependencies.
+pub fn install_dependency(resource_id: &str, app_id: Option<&str>) -> Result<()> {
+    let _guard = QUEUE_LOCK.lock().map_err(|_| anyhow::anyhow!("Dependency queue is busy"))?;
+    let root = root()?;
+    let registry = read_json(&root.join("registry/state.json"))?;
+    if let Some(id) = app_id {
+        let application = registry.pointer(&format!("/applications/{id}"))
+            .ok_or_else(|| anyhow::anyhow!("Application '{id}' is not registered in Shared Runtime"))?;
+        let installation = application.get("installation_path").and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("Application '{id}' has no registered installation path"))?;
+        let config_path = PathBuf::from(installation).join("shared.config.json");
+        let config: Value = serde_json::from_slice(&fs::read(&config_path)
+            .with_context(|| format!("Could not read {}", config_path.display()))?)?;
+        let declared = config.pointer("/shared/dependencies").and_then(Value::as_array)
+            .into_iter().flatten().any(|entry| entry.get("id").and_then(Value::as_str) == Some(resource_id));
+        if !declared {
+            anyhow::bail!("Application '{id}' does not declare '{resource_id}' in shared.dependencies.");
+        }
+    }
+
+    let installed_path = super::dependency_manager::ensure_dependency(&root, resource_id)?;
+    let resolved_file = resolved_path(&root);
+    let mut resolved = read_json(&resolved_file)?;
+    if !resolved.is_object() { resolved = json!({}); }
+    resolved[resource_id] = Value::String(installed_path.to_string_lossy().into_owned());
+    write_json(&resolved_file, &resolved)?;
+    refresh_registered_configs(&root, &resolved)?;
+    println!("Shared resource '{resource_id}' is ready: {}", installed_path.display());
+    Ok(())
+}
+
 pub fn status() -> Result<Value> {
     let root = root()?;
     read_json(&status_path(&root))
