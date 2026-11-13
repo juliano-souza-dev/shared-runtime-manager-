@@ -40,7 +40,7 @@ fn dependencies_for(config: &Value) -> Vec<String> {
 /// generated local config. Existing custom dependencies are preserved; matching IDs
 /// inherit the template's required/version policy so changed requirements take effect
 /// on both first registration and later synchronization.
-fn merge_example_dependencies(installation_path: &str, config: &mut Value) -> Result<()> {
+pub(crate) fn merge_example_dependencies(installation_path: &str, config: &mut Value) -> Result<()> {
     let example_path = PathBuf::from(installation_path).join("shared.config.example.json");
     if !example_path.is_file() {
         return Ok(());
