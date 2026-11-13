@@ -9,6 +9,13 @@ import json
 import os
 import sys
 import traceback
+from pathlib import Path
+
+_SHARED_ROOT = Path(__file__).resolve().parents[2]
+_SHARED_MODELS = _SHARED_ROOT / "models" / "forced-alignment"
+os.environ.setdefault("HF_HOME", str(_SHARED_MODELS / "huggingface"))
+os.environ.setdefault("TORCH_HOME", str(_SHARED_MODELS / "torch"))
+os.environ.setdefault("XDG_CACHE_HOME", str(_SHARED_ROOT / "cache" / "forced-alignment"))
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
