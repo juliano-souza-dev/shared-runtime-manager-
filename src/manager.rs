@@ -314,7 +314,8 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
         "applications": shared_root.join(REGISTRY_FILE).display().to_string(),
         "apiProviders": shared_root.join("registry/apis.json").display().to_string()
     });
-    shared["resources"] = serde_json::to_value(installed_resources)?;
+    shared["resources"] = serde_json::to_value(&installed_resources)?;
+    shared["resolvedDependencies"] = serde_json::to_value(installed_resources)?;
     // API providers are Shared-owned and are materialized only for authorized applications.
     shared["apiProviders"] = serde_json::to_value(super::api::providers_for_app(app_id)?)?;
 
@@ -527,9 +528,13 @@ pub fn delete_resource(resource_id: &str) -> Result<()> {
             if canonical_candidate.is_dir() { fs::remove_dir_all(&canonical_candidate)?; }
             else { fs::remove_file(&canonical_candidate)?; }
         }
-        "whisper-models" => {
+        "whisper-models" | "forced-alignment" => {
             if canonical_candidate.is_dir() { fs::remove_dir_all(&canonical_candidate)?; }
             else { fs::remove_file(&canonical_candidate)?; }
+            if resource_id == "forced-alignment" {
+                let model_cache = canonical_root.join("models/forced-alignment");
+                if model_cache.is_dir() { fs::remove_dir_all(model_cache)?; }
+            }
         }
         _ => {
             bail!("Dependency '{resource_id}' is not stored as a safely removable resource inside Shared. Its installation is managed externally.");
