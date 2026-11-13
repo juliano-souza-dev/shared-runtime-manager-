@@ -258,10 +258,12 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
         .filter_map(|id| resource_registry.resources.get(id).map(|resource| (id.clone(), resource.install_path.clone())))
         .collect();
 
-    let mut application = document.get("application").cloned()
+    // The Shared registry identity (app_id) is independent from the identity
+    // declared by the consuming project's config. Never rewrite application.id
+    // or application.name here: repositories may intentionally reuse a config
+    // created for another app (for example, ihub-generator inside nova-generator).
+    let application = document.get("application").cloned()
         .filter(|value| value.is_object()).unwrap_or_else(|| serde_json::json!({}));
-    application["id"] = serde_json::Value::String(app_id.to_owned());
-    application["name"] = serde_json::Value::String(app.name.clone());
 
     // Application-owned declarations must survive every Shared refresh.
     let mut shared = match document.get("shared") {
