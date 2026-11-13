@@ -277,6 +277,17 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
     if !shared.as_object().is_some_and(|object| object.contains_key("providers")) {
         shared["providers"] = serde_json::json!([]);
     }
+
+    // Always merge the checked-in template before resolving resources. This is
+    // important when an existing local config predates a newly required resource
+    // or when its application.id differs from the Shared registry key.
+    let mut template_config = serde_json::json!({ "shared": shared });
+    super::dependency_queue::merge_example_dependencies(
+        &app_root.display().to_string(),
+        &mut template_config,
+    )?;
+    shared = template_config["shared"].clone();
+
     validate_declarations(&shared, "dependencies")?;
     validate_declarations(&shared, "providers")?;
 
