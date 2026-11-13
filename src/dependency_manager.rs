@@ -2,6 +2,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
+    ffi::OsStr,
     fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
@@ -12,6 +13,19 @@ const USER_AGENT: &str = "JulianoDev-SharedRuntimeManager/0.5";
 const FFMPEG_ARCHIVE: &str = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
 const YT_DLP_WINDOWS: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
 const YT_DLP_LINUX: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux";
+
+
+/// Spawn dependency tools without opening a separate Windows console window.
+/// All stdout/stderr handling stays inside the Shared Runtime Manager.
+fn silent_command<S: AsRef<OsStr>>(program: S) -> Command {
+    let mut command = silent_command(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    command
+}
 
 const DEFAULT_DEPENDENCIES: &[(&str, bool)] = &[
     ("ffmpeg", true),
