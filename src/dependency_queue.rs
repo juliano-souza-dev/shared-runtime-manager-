@@ -37,14 +37,56 @@ fn dependencies_for(config: &Value) -> Vec<String> {
 }
 
 /// Adds a project to the durable queue without attempting to install dependencies.
+/// Merge dependency declarations from the application's checked-in example into its
+/// generated local config. Existing custom dependencies are preserved; matching IDs
+/// inherit the template's required/version policy so changed requirements take effect
+/// on both first registration and later synchronization.
+fn merge_example_dependencies(installation_path: &str, config: &mut Value) -> Result<()> {
+    let example_path = PathBuf::from(installation_path).join("shared.config.example.json");
+    if !example_path.is_file() {
+        return Ok(());
+    }
+    let example: Value = serde_json::from_slice(&fs::read(&example_path)
+        .with_context(|| format!("Could not read {}", example_path.display()))?)
+        .with_context(|| format!("{} contains invalid JSON", example_path.display()))?;
+    let Some(template_dependencies) = example.pointer("/shared/dependencies").and_then(Value::as_array) else {
+        return Ok(());
+    };
+
+    if !config.get("shared").is_some_and(Value::is_object) {
+        config["shared"] = json!({});
+    }
+    if !config.pointer("/shared/dependencies").is_some_and(Value::is_array) {
+        config["shared"]["dependencies"] = json!([]);
+    }
+    let current = config["shared"]["dependencies"].as_array_mut()
+        .expect("dependencies array was initialized above");
+
+    for template in template_dependencies {
+        let Some(id) = template.get("id").and_then(Value::as_str) else { continue };
+        if let Some(existing) = current.iter_mut()
+            .find(|entry| entry.get("id").and_then(Value::as_str) == Some(id))
+        {
+            for field in ["required", "version"] {
+                if let Some(value) = template.get(field) {
+                    existing[field] = value.clone();
+                }
+            }
+        } else {
+            current.push(template.clone());
+        }
+    }
+    Ok(())
+}
+
 pub fn enqueue_application(app_id: &str, installation_path: &str) -> Result<()> {
     let _guard = QUEUE_LOCK.lock().map_err(|_| anyhow::anyhow!("Dependency queue is busy"))?;
     let root = root()?;
     let config_path = PathBuf::from(installation_path).join("shared.config.json");
-    let config: Value = serde_json::from_slice(&fs::read(&config_path)
+    let mut config: Value = serde_json::from_slice(&fs::read(&config_path)
         .with_context(|| format!("Could not read {}", config_path.display()))?)?;
+    merge_example_dependencies(installation_path, &mut config)?;
     let dependencies = dependencies_for(&config);
-    let mut config = config;
     // Keep the root compatibility list limited to auto-installed requirements,
     // but preserve the full application-owned shared.dependencies declarations,
     // including optional resources that can be installed explicitly later.
