@@ -390,14 +390,11 @@ pub fn provision_application(app_id: &str, installation_path: &str) -> Result<()
         bail!("shared.config.json root must be a JSON object.");
     }
 
-    let declared = config.get("dependencies")
+    let declared = config.get("shared")
+        .and_then(|shared| shared.get("dependencies"))
         .and_then(Value::as_array)
         .cloned()
-        .or_else(|| config.get("shared")
-            .and_then(|shared| shared.get("dependencies"))
-            .and_then(Value::as_array)
-            .filter(|items| !items.is_empty())
-            .cloned())
+        .or_else(|| config.get("dependencies").and_then(Value::as_array).cloned())
         .unwrap_or_else(|| default_contract()["dependencies"].as_array().unwrap().clone());
 
     // Keep the public root contract and the Shared-owned declaration section in sync.
