@@ -36,7 +36,6 @@ fn dependencies_for(config: &Value) -> Vec<String> {
     } else { ids.into_iter().collect() }
 }
 
-/// Adds a project to the durable queue without attempting to install dependencies.
 /// Merge dependency declarations from the application's checked-in example into its
 /// generated local config. Existing custom dependencies are preserved; matching IDs
 /// inherit the template's required/version policy so changed requirements take effect
@@ -79,6 +78,7 @@ fn merge_example_dependencies(installation_path: &str, config: &mut Value) -> Re
     Ok(())
 }
 
+/// Adds a project to the durable queue without attempting to install dependencies.
 pub fn enqueue_application(app_id: &str, installation_path: &str) -> Result<()> {
     let _guard = QUEUE_LOCK.lock().map_err(|_| anyhow::anyhow!("Dependency queue is busy"))?;
     let root = root()?;
@@ -296,5 +296,46 @@ mod tests {
         assert_eq!(dependencies_for(&config), vec!["ffmpeg".to_owned()]);
         let linked = dependencies_for_without_default(&config);
         assert!(linked.contains(&"forced-alignment".to_owned()));
+    }
+
+    #[test]
+    fn example_template_promotes_forced_alignment_and_preserves_custom_dependencies() {
+        let directory = std::env::temp_dir().join(format!(
+            "shared-runtime-template-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(
+            directory.join("shared.config.example.json"),
+            json!({
+                "shared": {
+                    "dependencies": [
+                        {"id": "forced-alignment", "required": true},
+                        {"id": "ffmpeg", "required": true}
+                    ]
+                }
+            }).to_string()
+        ).unwrap();
+
+        let mut config = json!({
+            "shared": {
+                "dependencies": [
+                    {"id": "forced-alignment", "required": false},
+                    {"id": "custom-tool", "required": true}
+                ]
+            }
+        });
+        merge_example_dependencies(directory.to_str().unwrap(), &mut config).unwrap();
+
+        assert_eq!(
+            config.pointer("/shared/dependencies/0/required"),
+            Some(&Value::Bool(true))
+        );
+        assert!(config.pointer("/shared/dependencies/1/id")
+            .and_then(Value::as_str) == Some("custom-tool"));
+        assert!(dependencies_for(&config).contains(&"forced-alignment".to_owned()));
+
+        fs::remove_dir_all(directory).unwrap();
     }
 }
