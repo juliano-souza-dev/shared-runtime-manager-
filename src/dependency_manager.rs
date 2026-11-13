@@ -297,10 +297,11 @@ fn ensure_forced_alignment(root: &Path) -> Result<PathBuf> {
     if !interpreter.is_file() {
         let base_python = ensure_python()?;
         println!("Creating the isolated Shared Forced Alignment Python environment...");
+        let venv_path = venv.to_string_lossy().into_owned();
         if base_python == "py" {
-            python_command(&base_python, &["-3", "-m", "venv", venv.to_string_lossy().as_ref()])?;
+            python_command(&base_python, &["-3", "-m", "venv", &venv_path])?;
         } else {
-            python_command(&base_python, &["-m", "venv", venv.to_string_lossy().as_ref()])?;
+            python_command(&base_python, &["-m", "venv", &venv_path])?;
         }
     }
 
