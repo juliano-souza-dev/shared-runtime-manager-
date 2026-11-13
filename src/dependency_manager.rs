@@ -115,7 +115,7 @@ fn find_python() -> Option<String> {
             let check = if candidate == "py" {
                 silent_command(candidate).args(["-3", "--version"]).output()
             } else {
-                Command::new(candidate).arg("--version").output()
+                silent_command(candidate).arg("--version").output()
             };
             if check.map(|out| out.status.success()).unwrap_or(false) {
                 return Some(candidate.to_owned());
@@ -156,7 +156,7 @@ fn run_python(python: &str, args: &[&str]) -> Result<()> {
     let status = if python == "py" {
         silent_command(python).arg("-3").args(args).status()?
     } else {
-        Command::new(python).args(args).status()?
+        silent_command(python).args(args).status()?
     };
     if !status.success() {
         bail!("Python dependency command failed: {}", args.join(" "));
@@ -167,9 +167,9 @@ fn run_python(python: &str, args: &[&str]) -> Result<()> {
 fn python_import_exists(python: &str, module: &str) -> bool {
     let script = format!("import {module}");
     let output = if python == "py" {
-        Command::new(python).args(["-3", "-c", &script]).output()
+        silent_command(python).args(["-3", "-c", &script]).output()
     } else {
-        Command::new(python).args(["-c", &script]).output()
+        silent_command(python).args(["-c", &script]).output()
     };
     output.map(|result| result.status.success()).unwrap_or(false)
 }
@@ -273,9 +273,9 @@ fn ensure_yt_dlp(root: &Path) -> Result<PathBuf> {
 
 fn python_command(python: &str, args: &[&str]) -> Result<()> {
     let status = if python == "py" {
-        Command::new(python).arg("-3").args(args).status()?
+        silent_command(python).arg("-3").args(args).status()?
     } else {
-        Command::new(python).args(args).status()?
+        silent_command(python).args(args).status()?
     };
     if !status.success() {
         bail!("Python command failed: {}", args.join(" "));
@@ -293,7 +293,7 @@ fn venv_python(venv: &Path) -> PathBuf {
 
 fn python_module_exists(python: &Path, module: &str) -> bool {
     let script = format!("import {module}");
-    Command::new(python)
+    silent_command(python)
         .arg("-c")
         .arg(script)
         .output()
