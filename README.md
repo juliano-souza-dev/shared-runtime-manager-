@@ -156,7 +156,7 @@ The worker accepts one alignment request per input line and returns one JSON res
 
 The resolved runtime directory is provisioned to declaring applications as `shared.resources.forced-alignment`. Applications must read this absolute path from their own generated `shared.config.json`; they must not construct or hardcode the Shared root, Python executable, worker path, or model-cache path.
 
-The resource is optional so registering or synchronizing an application does not unexpectedly trigger a large PyTorch/WhisperX download. It is installed explicitly when the feature is enabled.
+The resource is opt-in at the application-contract level. Applications declaring `required: false` do not download PyTorch/WhisperX during registration or synchronization and can install it explicitly when needed. Applications declaring `required: true` automatically queue the resource during registration and synchronization. For example, Nova Generator declares it as required because word-level alignment is part of its workflow.
 
 ## Shared dependencies
 
@@ -308,7 +308,7 @@ The provider catalog is metadata, not an installer: cloud APIs are accessed over
 
 ## Synchronizing registered applications and removing dependencies
 
-The desktop **Applications** page provides a **Synchronize dependencies** action for every registered application. It re-reads the application's existing `shared.config.json`, preserves its dependency declarations, queues the required resources, reuses binaries already found on PATH or in Shared, and refreshes the resolved dependency links. If the configuration file is missing, Shared recreates its generated configuration before queueing the synchronization.
+The desktop **Applications** page provides a **Synchronize dependencies** action for every registered application. It re-reads the application's existing `shared.config.json`, merges dependency IDs and required/version policies from the checked-in `shared.config.example.json` when present, preserves additional custom dependencies, queues the required resources, reuses binaries already found on PATH or in Shared, and refreshes the resolved dependency links. This also applies template changes to applications that were registered before a dependency was added or promoted to required. If the configuration file is missing, Shared recreates its generated configuration before queueing the synchronization.
 
 The application list shows dependencies declared by the project as well as dependencies already resolved in its configuration. The dependency library identifies which applications still reference each dependency.
 
