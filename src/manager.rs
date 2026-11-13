@@ -254,7 +254,7 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
     }
 
     let resource_registry = read_registry(shared_root)?;
-    let installed_resources: BTreeMap<String, String> = app.resources.iter()
+    let mut installed_resources: BTreeMap<String, String> = app.resources.iter()
         .filter_map(|id| resource_registry.resources.get(id).map(|resource| (id.clone(), resource.install_path.clone())))
         .collect();
 
@@ -277,6 +277,27 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
     }
     validate_declarations(&shared, "dependencies")?;
     validate_declarations(&shared, "providers")?;
+
+    // Resolve only resources explicitly declared by this application. Optional
+    // resources become visible after an explicit Shared installation.
+    let declared_ids: std::collections::BTreeSet<String> = shared["dependencies"]
+        .as_array().into_iter().flatten()
+        .filter_map(|entry| entry.get("id").and_then(serde_json::Value::as_str).map(str::to_owned))
+        .collect();
+    let resolved_path = shared_root.join("registry/resolved-dependencies.json");
+    if resolved_path.is_file() {
+        let resolved: serde_json::Value = serde_json::from_slice(&fs::read(&resolved_path)?)
+            .context("Resolved dependency registry contains invalid JSON")?;
+        if let Some(entries) = resolved.as_object() {
+            for id in declared_ids {
+                if let Some(path) = entries.get(&id).and_then(serde_json::Value::as_str) {
+                    if Path::new(path).is_absolute() && Path::new(path).exists() {
+                        installed_resources.insert(id, path.to_owned());
+                    }
+                }
+            }
+        }
+    }
 
     // Shared-owned fields are refreshed from the central registry.
     shared["enabled"] = serde_json::Value::Bool(true);
