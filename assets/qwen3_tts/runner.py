@@ -29,7 +29,7 @@ def main() -> int:
     with contextlib.redirect_stdout(sys.stderr):
         model = Qwen3TTSModel.from_pretrained(
             str(model_path),
-            device_map="cpu",
+            device_map={"": "cpu"},
             dtype=torch.float32,
             attn_implementation="sdpa",
         )
