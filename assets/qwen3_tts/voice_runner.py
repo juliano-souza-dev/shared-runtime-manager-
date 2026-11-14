@@ -11,9 +11,10 @@ import torch
 from qwen_tts import Qwen3TTSModel
 
 
-def handle_request(model, profile_path: Path, request: dict) -> dict:
+def handle_request(model, profile_path: Path, request: dict, set_stage) -> dict:
     operation = request.get("operation")
     if operation == "prepare_voice":
+        set_stage("reference_audio_encoding")
         with contextlib.redirect_stdout(sys.stderr):
             items = model.create_voice_clone_prompt(
                 ref_audio=str(Path(request["reference_audio"]).resolve()),
@@ -27,11 +28,13 @@ def handle_request(model, profile_path: Path, request: dict) -> dict:
             "x_vector_only_mode": [item.x_vector_only_mode for item in items],
             "icl_mode": [item.icl_mode for item in items],
         }
+        set_stage("voice_prompt_saving")
         torch.save(prompt, profile_path / "voice_clone_prompt.pt")
         return {"status": "completed", "profile_path": str(profile_path)}
 
     if operation == "synthesize":
         prompt_path = profile_path / "voice_clone_prompt.pt"
+        set_stage("voice_prompt_loading")
         prompt = torch.load(prompt_path, map_location="cpu", weights_only=False)
         # Migrate profiles created by early builds, which stored a list of dicts.
         if isinstance(prompt, list):
@@ -41,12 +44,14 @@ def handle_request(model, profile_path: Path, request: dict) -> dict:
                 "x_vector_only_mode": [item["x_vector_only_mode"] for item in prompt],
                 "icl_mode": [item["icl_mode"] for item in prompt],
             }
+        set_stage("voice_generation")
         with contextlib.redirect_stdout(sys.stderr):
             wavs, sample_rate = model.generate_voice_clone(
                 text=str(request["text"]),
                 language=str(request.get("language", "Portuguese")),
                 voice_clone_prompt=prompt,
             )
+        set_stage("audio_file_writing")
         output = Path(request["output_path"]).resolve()
         output.parent.mkdir(parents=True, exist_ok=True)
         sf.write(str(output), wavs[0], sample_rate)
@@ -102,7 +107,10 @@ def main() -> int:
                 raise TypeError("A solicitação recebida precisa ser um objeto JSON.")
             operation = str(request.get("operation") or "unknown")
             stage = "voice_prompt_loading" if operation == "synthesize" else "voice_prompt_preparation"
-            response = handle_request(model, profile_path, request)
+            def set_stage(value):
+                nonlocal stage
+                stage = value
+            response = handle_request(model, profile_path, request, set_stage)
             response.update({
                 "id": request.get("id"),
                 "operation": operation,
