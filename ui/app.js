@@ -101,6 +101,7 @@ $("voice-form").onsubmit=async e=>{
  if(!file||!file.size)return note("Selecione um arquivo de áudio.",true);
  submit.disabled=true;submit.textContent="Enviando para processamento...";
  try{
+  lastVoiceProcessingStatus="";
   const audioBase64=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(",")[1]||"");reader.onerror=()=>reject(new Error("Não foi possível ler o arquivo de áudio."));reader.readAsDataURL(file)});
   await invoke("create_voice_profile",{name:data.get("name"),filename:file.name,audioBase64,referenceText:data.get("reference_text")});
   form.reset();await refreshProcessing();page("processing");note("Preparação da voz iniciada. Acompanhe o andamento e o resultado na Central de Processamentos.");
