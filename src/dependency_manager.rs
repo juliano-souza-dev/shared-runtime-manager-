@@ -314,7 +314,7 @@ fn python_script_succeeds(python: &Path, script: &str) -> bool {
 
 /// Provisions WhisperX in a Shared-owned virtual environment. The application's
 /// own Python installation and site-packages are never modified.
-const QWEN3_TTS_MODEL_ID: &str = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice";
+const QWEN3_TTS_MODEL_ID: &str = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice";
 const PIPER_DEFAULT_VOICE: &str = "en_US-mike-medium";
 
 fn run_venv_command(python: &Path, args: &[&str], description: &str) -> Result<()> {
@@ -421,12 +421,12 @@ fn ensure_piper_tts(root: &Path) -> Result<PathBuf> {
 
 fn ensure_qwen3_tts(root: &Path) -> Result<PathBuf> {
     let runtime = root.join("runtimes/qwen3-tts");
-    let model = root.join("models/qwen3-tts/0.6B-CustomVoice");
+    let model = root.join("models/qwen3-tts/1.7B-CustomVoice");
     let cache = root.join("cache/huggingface");
     fs::create_dir_all(&runtime)?;
     fs::create_dir_all(&model)?;
     fs::create_dir_all(&cache)?;
-    super::dependency_queue::report_install_progress(5, "Preparando o ambiente isolado do Qwen3-TTS 0.6B")?;
+    super::dependency_queue::report_install_progress(5, "Preparando o ambiente isolado do Qwen3-TTS 1.7B")?;
 
     let interpreter = ensure_shared_venv(&runtime)?;
     let cpu_torch_check = "import torch; assert torch.version.cuda is None; assert torch.cuda.is_available() is False";
@@ -472,7 +472,7 @@ fn ensure_qwen3_tts(root: &Path) -> Result<PathBuf> {
     let model_config = model.join("config.json");
     let model_weights = model.join("model.safetensors");
     if !(model_config.is_file() && model_weights.is_file()) {
-        super::dependency_queue::report_install_progress(70, "Baixando o modelo Qwen3-TTS 0.6B CustomVoice. O download pode ultrapassar 2 GB.")?;
+        super::dependency_queue::report_install_progress(70, "Baixando o modelo Qwen3-TTS 1.7B CustomVoice. O download pode ultrapassar 2 GB.")?;
         let model_path = model.to_string_lossy().into_owned();
         let cache_path = cache.to_string_lossy().into_owned();
         let script = "import sys; from huggingface_hub import snapshot_download; snapshot_download(repo_id=sys.argv[1], local_dir=sys.argv[2], cache_dir=sys.argv[3])";
@@ -523,8 +523,8 @@ fn ensure_qwen3_tts(root: &Path) -> Result<PathBuf> {
         "supportsVoiceCloning": false,
         "supportsCustomVoice": true
     }))?;
-    super::dependency_queue::report_install_progress(100, "Qwen3-TTS 0.6B pronto para uso em CPU")?;
-    println!("Qwen3-TTS 0.6B CPU runtime is ready: {}", runtime.display());
+    super::dependency_queue::report_install_progress(100, "Qwen3-TTS 1.7B pronto para uso em CPU")?;
+    println!("Qwen3-TTS 1.7B CPU runtime is ready: {}", runtime.display());
     Ok(runtime)
 }
 
