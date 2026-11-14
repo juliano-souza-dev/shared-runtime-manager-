@@ -221,3 +221,41 @@ pub(crate) fn config_for_consumers(root: &Path) -> Result<Value> {
     })).collect();
     Ok(json!({ "default": registry.default_voice_id, "available": available }))
 }
+
+pub(crate) fn ensure_runtime(root: &Path) -> Result<PathBuf> {
+    let runtime = root.join("runtimes/qwen3-tts-clone");
+    let model = root.join("models/qwen3-tts-clone/1.7B-Base");
+    let cache = root.join("cache/huggingface");
+    fs::create_dir_all(&runtime)?; fs::create_dir_all(&model)?; fs::create_dir_all(&cache)?;
+    let venv = runtime.join("venv");
+    let python = if cfg!(windows) { venv.join("Scripts/python.exe") } else { venv.join("bin/python") };
+    if !python.is_file() {
+        let base = if cfg!(windows) { "py" } else { "python3" };
+        let mut command = Command::new(base);
+        if cfg!(windows) { command.arg("-3"); }
+        let status = command.args(["-m", "venv"]).arg(&venv).status()?;
+        if !status.success() { bail!("Não foi possível criar o ambiente Python do Qwen3-TTS Base."); }
+    }
+    let cpu_check = "import torch; assert torch.version.cuda is None and not torch.cuda.is_available()";
+    let check = Command::new(&python).args(["-c", cpu_check]).status().map(|s| s.success()).unwrap_or(false);
+    if !check {
+        let status = Command::new(&python).args(["-m", "pip", "install", "--upgrade", "pip"]).status()?;
+        if !status.success() { bail!("Falha ao preparar pip para Qwen3-TTS Base."); }
+        let status = Command::new(&python).args(["-m", "pip", "install", "--force-reinstall", "torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"]).status()?;
+        if !status.success() { bail!("Falha ao instalar PyTorch CPU para Qwen3-TTS Base."); }
+    }
+    let status = Command::new(&python).args(["-m", "pip", "install", "qwen-tts", "soundfile"]).status()?;
+    if !status.success() { bail!("Falha ao instalar qwen-tts e soundfile."); }
+    let model_config = model.join("config.json");
+    if !model_config.is_file() {
+        let script = "import sys; from huggingface_hub import snapshot_download; snapshot_download(repo_id='Qwen/Qwen3-TTS-12Hz-1.7B-Base', local_dir=sys.argv[1], cache_dir=sys.argv[2])";
+        let status = Command::new(&python).arg("-c").arg(script).arg(&model).arg(&cache).env("HF_HUB_DISABLE_TELEMETRY", "1").status()?;
+        if !status.success() { bail!("Falha ao baixar o modelo Qwen3-TTS 1.7B Base."); }
+    }
+    let runner = runtime.join("voice_runner.py");
+    let source = include_str!("../assets/qwen3_tts/voice_runner.py");
+    fs::write(&runner, source)?;
+    let manifest = json!({"schemaVersion":"1.0","runtime":"qwen3-tts-clone","python":python,"runner":runner,"device":"cpu","dtype":"float32","modelId":MODEL_ID,"model":model,"supportsVoiceCloning":true});
+    fs::write(runtime.join("runtime.json"), serde_json::to_vec_pretty(&manifest)?)?;
+    Ok(runtime)
+}
