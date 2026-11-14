@@ -33,6 +33,12 @@ function findCargo() {
   return "cargo";
 }
 
+function closePreviousGui() {
+  if (!isWindows) return;
+  const command = "$running = Get-Process -Name 'srm-gui' -ErrorAction SilentlyContinue; if ($running) { $running | ForEach-Object { [void]$_.CloseMainWindow() }; Start-Sleep -Seconds 3; Get-Process -Name 'srm-gui' -ErrorAction SilentlyContinue | Stop-Process -Force }";
+  run("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command], "Encerrando a versão anterior da interface");
+}
+
 async function main() {
   console.log("Shared Runtime Manager · atualização e compilação");
   run("git", ["pull", "--ff-only", "origin", "main"], "Atualizando o código pela branch main");
@@ -40,6 +46,7 @@ async function main() {
   const cargo = findCargo();
   run(cargo, ["fmt", "--all"], "Formatando o código Rust");
   run(cargo, ["test", "--all-targets"], "Executando os testes");
+  closePreviousGui();
   run(cargo, ["build", "--release", "--features", "desktop", "--bin", "srm-gui"], "Compilando o aplicativo desktop e a GUI");
 
   const executable = isWindows
