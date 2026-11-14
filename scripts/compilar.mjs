@@ -7,7 +7,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const isWindows = process.platform === "win32";
 
 function run(command, args, label, options = {}) {
-  console.log("\\n▶ " + label);
+  console.log("\n▶ " + label);
   const result = spawnSync(command, args, {
     cwd: root,
     stdio: "inherit",
@@ -56,12 +56,12 @@ async function main() {
     throw new Error("A compilação terminou, mas o executável da interface não foi encontrado: " + executable);
   }
 
-  console.log("\\n✓ Atualização e compilação concluídas. Iniciando a interface gráfica...");
+  console.log("\n✓ Atualização e compilação concluídas. Iniciando a interface gráfica...");
   const child = spawn(executable, [], { cwd: root, detached: true, stdio: "ignore" });
   child.unref();
 }
 
 main().catch(error => {
-  console.error("\\n✖ " + (error?.message || error));
+  console.error("\n✖ " + (error?.message || error));
   process.exitCode = 1;
 });
