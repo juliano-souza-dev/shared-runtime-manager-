@@ -20,18 +20,27 @@ def handle_request(model, profile_path: Path, request: dict) -> dict:
                 ref_text=str(request["reference_text"]),
                 x_vector_only_mode=False,
             )
-        prompt = [{
-            "ref_code": item.ref_code,
-            "ref_spk_embedding": item.ref_spk_embedding,
-            "x_vector_only_mode": item.x_vector_only_mode,
-            "icl_mode": item.icl_mode,
-        } for item in items]
+        # Qwen accepts a dict-of-batches for reusable prompts.
+        prompt = {
+            "ref_code": [item.ref_code for item in items],
+            "ref_spk_embedding": [item.ref_spk_embedding for item in items],
+            "x_vector_only_mode": [item.x_vector_only_mode for item in items],
+            "icl_mode": [item.icl_mode for item in items],
+        }
         torch.save(prompt, profile_path / "voice_clone_prompt.pt")
         return {"status": "completed", "profile_path": str(profile_path)}
 
     if operation == "synthesize":
         prompt_path = profile_path / "voice_clone_prompt.pt"
         prompt = torch.load(prompt_path, map_location="cpu", weights_only=False)
+        # Migrate profiles created by early builds, which stored a list of dicts.
+        if isinstance(prompt, list):
+            prompt = {
+                "ref_code": [item["ref_code"] for item in prompt],
+                "ref_spk_embedding": [item["ref_spk_embedding"] for item in prompt],
+                "x_vector_only_mode": [item["x_vector_only_mode"] for item in prompt],
+                "icl_mode": [item["icl_mode"] for item in prompt],
+            }
         with contextlib.redirect_stdout(sys.stderr):
             wavs, sample_rate = model.generate_voice_clone(
                 text=str(request["text"]),
