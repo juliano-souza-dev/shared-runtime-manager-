@@ -1,6 +1,7 @@
 const invoke=window.__TAURI__?.core?.invoke,$=id=>document.getElementById(id);
 let state={applications:[],resources:[],providers:[],root:"",catalog:[],voices:{default_voice_id:null,voices:[]}};
 let processingStatus={status:"idle",progress:0,current:"Nenhuma operação executada",results:[]};
+let lastVoiceProcessingStatus="";
 const titles={overview:"Visão geral",apps:"Aplicativos",apis:"Provedores de API",resources:"Biblioteca de dependências",voices:"Biblioteca de vozes",processing:"Central de processamentos"};
 function note(message,error=false){const n=$("notice");n.textContent=message;n.classList.remove("hidden","error");if(error)n.classList.add("error");clearTimeout(note.timer);note.timer=setTimeout(()=>n.classList.add("hidden"),6500)}
 async function act(command,args={},message){try{await invoke(command,args);if(message)note(message);await load()}catch(e){note(String(e),true);throw e}}
@@ -37,7 +38,7 @@ function renderProcessing(status){
  const history=p.history||[];
  $("processing-history").innerHTML=history.length?history.map(item=>'<div class="queue-result"><span class="queue-dot '+(item.status==="completed"?"success":"failed")+'"></span><div><strong>'+esc(item.taskType==="voice-profile"?"Criação de perfil de voz":item.resourceId||item.application||"Fila de dependências")+'</strong><small>'+esc(item.current||item.status)+' · '+(item.finishedAt?new Date(item.finishedAt*1000).toLocaleString():"")+'</small></div><b>'+ (item.status==="completed"?"Concluído":item.status==="cancelled"?"Cancelado":"Falha")+'</b></div>').join(""):empty("As operações concluídas, canceladas ou com falha aparecerão aqui.");
 }
-async function refreshProcessing(){if(!invoke)return;try{renderProcessing(await invoke("dependency_queue_status"))}catch(e){console.error("Não foi possível atualizar a Central de Processamentos:",e)}}
+async function refreshProcessing(){if(!invoke)return;try{const next=await invoke("dependency_queue_status");renderProcessing(next);if(next.taskType==="voice-profile"&&["completed","error"].includes(next.status)&&lastVoiceProcessingStatus!==next.status){lastVoiceProcessingStatus=next.status;if(next.status==="completed"){state.voices=await invoke("voice_library");renderVoices();note("Perfil de voz pronto e disponível na biblioteca.")}}else if(next.taskType==="voice-profile"&&next.status==="running"){lastVoiceProcessingStatus="running"}}catch(e){console.error("Não foi possível atualizar a Central de Processamentos:",e)}}
 function renderVoices(){
  const list=$("voice-list");if(!list)return;
  const voices=state.voices?.voices||[];
