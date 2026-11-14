@@ -370,3 +370,29 @@ The application list shows dependencies declared by the project as well as depen
 A dependency cannot be deleted while a registered application declares or resolves it, while a legacy application link exists, or while it is waiting in the installation queue. The backend enforces these checks even if the UI is bypassed.
 
 Deletion is intentionally limited to files managed inside the central Shared Runtime directory. Shared can remove its own FFmpeg/FFprobe binaries, yt-dlp installation, and Whisper model directory. Dependencies discovered outside Shared (for example, Python or tools already installed elsewhere on PATH) are marked as external and are not deleted from the user's system.
+
+
+## Biblioteca compartilhada de vozes
+
+A interface desktop inclui a **Biblioteca de vozes**, que prepara perfis reutilizáveis com o modelo oficial `Qwen/Qwen3-TTS-12Hz-1.7B-Base`. O runtime de clonagem é separado do modelo CustomVoice já existente e usa um ambiente Python isolado com PyTorch CPU.
+
+Para criar um perfil:
+1. Instale **Qwen3-TTS Base · Clonagem** na Biblioteca de dependências.
+2. Instale FFmpeg e FFprobe pela Biblioteca de dependências, caso ainda não estejam disponíveis.
+3. Importe uma gravação própria ou autorizada, entre 10 e 200 segundos.
+4. Informe o texto exato da gravação para preparar o prompt de clonagem.
+5. O Shared normaliza o áudio, prepara o perfil e o guarda em `SharedRuntime/voices/<voice-id>`.
+
+Os aplicativos registrados recebem os perfis disponíveis em seu próprio `shared.config.json`, no campo `shared.voices`. O campo `default` contém o identificador da voz padrão e `available` contém nomes amigáveis e caminhos absolutos para os perfis, runtime, modelo, Python e executor. Os arquivos de voz não são copiados para os projetos consumidores.
+
+A prévia de áudio é gerada pelo mesmo perfil salvo. A transcrição de referência deve corresponder ao áudio enviado; gravações próprias ou com autorização são as únicas que devem ser utilizadas.
+
+## Atualizar, compilar e iniciar pelo npm
+
+Com Node.js, Git e Rust instalados, execute na raiz do repositório:
+
+```powershell
+npm run compilar
+```
+
+O comando atualiza a branch `main` com `git pull --ff-only`, formata o Rust, executa `cargo test --all-targets`, compila a interface desktop com `cargo build --release --features desktop --bin srm-gui` e inicia o executável recém-compilado. Se houver alterações locais que impeçam um pull fast-forward, o processo para sem sobrescrevê-las. O comando não instala Node.js, Git, Rust ou o WebView2; esses pré-requisitos precisam estar disponíveis no computador.
