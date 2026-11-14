@@ -301,7 +301,9 @@ mod tests {
             "shared": {
                 "dependencies": [
                     {"id": "ffmpeg", "required": true},
-                    {"id": "forced-alignment", "required": false}
+                    {"id": "forced-alignment", "required": false},
+                    {"id": "piper-tts", "required": false},
+                    {"id": "qwen3-tts", "required": false}
                 ]
             }
         });
@@ -309,6 +311,8 @@ mod tests {
         assert_eq!(dependencies_for(&config), vec!["ffmpeg".to_owned()]);
         let linked = dependencies_for_without_default(&config);
         assert!(linked.contains(&"forced-alignment".to_owned()));
+        assert!(linked.contains(&"piper-tts".to_owned()));
+        assert!(linked.contains(&"qwen3-tts".to_owned()));
     }
 
     #[test]
