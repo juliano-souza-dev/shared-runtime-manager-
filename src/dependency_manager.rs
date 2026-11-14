@@ -428,7 +428,7 @@ fn ensure_qwen3_tts(root: &Path) -> Result<PathBuf> {
     fs::create_dir_all(&cache)?;
     super::dependency_queue::report_install_progress(5, "Preparando o ambiente isolado do Qwen3-TTS 0.6B")?;
 
-    let interpreter = ensure_shared_venv(root, &runtime)?;
+    let interpreter = ensure_shared_venv(&runtime)?;
     let cpu_torch_check = "import torch; assert torch.version.cuda is None; assert torch.cuda.is_available() is False";
     if !python_script_succeeds(&interpreter, cpu_torch_check) {
         super::dependency_queue::report_install_progress(20, "Instalando PyTorch exclusivamente para CPU, sem CUDA")?;
