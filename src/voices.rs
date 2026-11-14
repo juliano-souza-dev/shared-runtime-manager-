@@ -354,7 +354,9 @@ pub fn preview(id: &str, text: &str) -> Result<String> {
             "operation": "synthesize",
             "text": text,
             "language": "Portuguese",
-            "output_path": output
+            "output_path": output,
+            "reference_audio": PathBuf::from(&voice.profile_path).join("reference.wav"),
+            "reference_text": voice.reference_text
         }))?;
     if result.get("status").and_then(Value::as_str) != Some("completed") {
         bail!("Falha ao gerar prévia: {}", result.get("error").and_then(Value::as_str).unwrap_or("erro desconhecido"));
