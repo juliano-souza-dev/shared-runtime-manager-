@@ -163,7 +163,34 @@ fn run_worker(python: &Path, runner: &Path, model: &Path, profile: &Path, reques
         .spawn().context("Não foi possível iniciar o executor Qwen3-TTS Base")?;
     child.stdin.take().ok_or_else(|| anyhow!("Entrada do executor indisponível"))?
         .write_all(format!("{}\n", serde_json::to_string(&request)?).as_bytes())?;
-    let output = child.wait_with_output()?;
+    let stdout_pipe = child.stdout.take().ok_or_else(|| anyhow!("Saída do executor Qwen indisponível"))?;
+    let stderr_pipe = child.stderr.take().ok_or_else(|| anyhow!("Diagnóstico do executor Qwen indisponível"))?;
+    let stdout_reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut std::io::BufReader::new(stdout_pipe), &mut bytes);
+        bytes
+    });
+    let stderr_reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut std::io::BufReader::new(stderr_pipe), &mut bytes);
+        bytes
+    });
+    let status = loop {
+        if super::dependency_queue::cancel_requested() {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            bail!("Operação cancelada pelo usuário.");
+        }
+        if let Some(status) = child.try_wait()? { break status; }
+        thread::sleep(Duration::from_millis(250));
+    };
+    let output = std::process::Output {
+        status,
+        stdout: stdout_reader.join().unwrap_or_default(),
+        stderr: stderr_reader.join().unwrap_or_default(),
+    };
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let response: Value = serde_json::from_str(stdout.trim()).with_context(|| {
@@ -221,6 +248,7 @@ pub fn create_profile(name: &str, filename: &str, audio_base64: &str, reference_
     let bytes = STANDARD.decode(audio_base64).context("O áudio enviado não está em Base64 válido")?;
     if bytes.is_empty() || bytes.len() > 100 * 1024 * 1024 { bail!("O arquivo está vazio ou excede o limite de 100 MB."); }
 
+    if super::dependency_queue::cancel_requested() { bail!("Operação cancelada pelo usuário."); }
     let root = root()?;
     let ffmpeg = executable(&root, "ffmpeg")?;
     let ffprobe = executable(&root, "ffprobe")?;
@@ -238,6 +266,7 @@ pub fn create_profile(name: &str, filename: &str, audio_base64: &str, reference_
     let duration_output = silent_command(&ffprobe).args([
         "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
     ]).arg(&source).output().context("Não foi possível analisar a duração do áudio")?;
+    if super::dependency_queue::cancel_requested() { let _ = fs::remove_dir_all(&profile); bail!("Operação cancelada pelo usuário."); }
     if !duration_output.status.success() { bail!("O arquivo enviado não contém um áudio válido."); }
     let duration: f64 = String::from_utf8_lossy(&duration_output.stdout).trim().parse()
         .context("Não foi possível determinar a duração do áudio")?;
@@ -249,15 +278,22 @@ pub fn create_profile(name: &str, filename: &str, audio_base64: &str, reference_
     let normalize = silent_command(&ffmpeg).args(["-y", "-i"]).arg(&source)
         .args(["-vn", "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le"])
         .arg(&normalized).output().context("Não foi possível preparar o áudio de referência")?;
+    if super::dependency_queue::cancel_requested() { let _ = fs::remove_dir_all(&profile); bail!("Operação cancelada pelo usuário."); }
     if !normalize.status.success() {
         let _ = fs::remove_dir_all(&profile);
         bail!("Falha ao converter o áudio: {}", String::from_utf8_lossy(&normalize.stderr).trim());
     }
-    let prepared = run_worker(&python, &runner, &model, &profile, json!({
+    let prepared = match run_worker(&python, &runner, &model, &profile, json!({
         "operation": "prepare_voice",
         "reference_audio": normalized,
         "reference_text": reference_text
-    }))?;
+    })) {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&profile);
+            return Err(error);
+        }
+    };
     if prepared.get("status").and_then(Value::as_str) != Some("completed") {
         let _ = fs::remove_dir_all(&profile);
         bail!("O modelo não conseguiu preparar a voz: {}", prepared.get("error").and_then(Value::as_str).unwrap_or("erro desconhecido"));
