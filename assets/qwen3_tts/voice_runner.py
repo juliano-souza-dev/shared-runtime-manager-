@@ -66,10 +66,12 @@ def main() -> int:
 
     model_path = Path(sys.argv[1]).resolve()
     profile_path = Path(sys.argv[2]).resolve()
+    stage = "runtime_initialization"
     try:
         cpu_count = os.cpu_count() or 4
         torch.set_num_threads(max(1, min(cpu_count, 8)))
         torch.set_num_interop_threads(1)
+        stage = "model_loading"
         with contextlib.redirect_stdout(sys.stderr):
             model = Qwen3TTSModel.from_pretrained(
                 str(model_path),
@@ -80,20 +82,40 @@ def main() -> int:
     except Exception as error:
         print(json.dumps({
             "status": "error",
+            "id": None,
+            "operation": "startup",
+            "stage": stage,
+            "error_type": type(error).__name__,
             "error": str(error),
             "traceback": traceback.format_exc(),
         }, ensure_ascii=False), flush=True)
         return 1
 
-    for raw in sys.stdin:
+    for line_number, raw in enumerate(sys.stdin, start=1):
+        request = {}
+        operation = "request_parsing"
+        stage = "request_parsing"
         try:
             request = json.loads(raw)
+            stage = "request_validation"
+            if not isinstance(request, dict):
+                raise TypeError("A solicitação recebida precisa ser um objeto JSON.")
+            operation = str(request.get("operation") or "unknown")
+            stage = "voice_prompt_loading" if operation == "synthesize" else "voice_prompt_preparation"
             response = handle_request(model, profile_path, request)
-            response["id"] = request.get("id")
+            response.update({
+                "id": request.get("id"),
+                "operation": operation,
+                "stage": "completed",
+            })
         except Exception as error:
             response = {
                 "status": "error",
-                "id": None,
+                "id": request.get("id") if isinstance(request, dict) else None,
+                "operation": operation,
+                "stage": stage,
+                "line": line_number,
+                "error_type": type(error).__name__,
                 "error": str(error),
                 "traceback": traceback.format_exc(),
             }
