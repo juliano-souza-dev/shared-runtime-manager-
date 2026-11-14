@@ -18,7 +18,7 @@ function renderProcessing(status){
  if(status)processingStatus=status;
  const p=processingStatus||{};
  const running=["queued","installing","running","cancelling"].includes(p.status);
- const hasFailures=p.status==="error"||(p.results||[]).some(item=>item.status!=="installed"&&item.status!=="cancelled");
+ const hasFailures=p.status==="error"||(p.results||[]).some(item=>!["installed","completed","cancelled"].includes(item.status));
  const badge=$("processing-status-badge");
  if(!badge)return;
  badge.textContent=p.status==="cancelling"?"Cancelamento solicitado":running?"Processamento em andamento":p.status==="cancelled"?"Cancelado":hasFailures?"Concluído com falhas":p.status==="completed"?"Concluído":"Sem tarefas ativas";
@@ -33,9 +33,9 @@ function renderProcessing(status){
  const controls=running?'<div class="processing-actions"><button class="small-btn danger" data-cancel-processing '+(p.status==="cancelling"?"disabled":"")+'>Cancelar operação</button></div>':(["cancelled","error"].includes(p.status)?'<div class="processing-actions"><button class="primary" data-restart-processing>↻ Reiniciar operação</button></div>':"");
  $("processing-current").innerHTML='<div class="processing-card"><div class="processing-card-top"><div><small>OPERAÇÃO ATUAL</small><h3>'+esc(p.current||"Nenhuma operação executada")+'</h3><p>'+esc(p.application?"Aplicativo: "+p.application:p.resourceId?"Recurso: "+p.resourceId:"Aguardando uma operação do Shared")+'</p></div><strong class="'+(determinate?"":"progress-indeterminate-label")+'">'+progressLabel+'</strong></div><div class="processing-track"><i class="'+trackClass+'" style="width:'+percent+'%"></i></div>'+downloadInfo+'<div class="processing-meta"><span>'+esc(p.status||"idle")+'</span><span>'+(p.completed??0)+' / '+(p.total??0)+' dependências</span></div>'+controls+'</div>';
  const results=p.results||[];
- $("processing-results").innerHTML=results.length?results.map(x=>'<div class="queue-result"><span class="queue-dot '+(x.status==="installed"?"success":"failed")+'"></span><div><strong>'+esc(x.id)+'</strong><small>'+(x.status==="installed"?"Instalado ou já disponível":esc(x.message||"Falha na instalação"))+'</small></div><b>'+(x.status==="installed"?"Concluído":x.status==="cancelled"?"Cancelado":"Erro")+'</b></div>').join(""):empty("Os detalhes aparecerão aqui quando uma operação iniciar.");
+ $("processing-results").innerHTML=results.length?results.map(x=>'<div class="queue-result"><span class="queue-dot '+(x.status==="installed"?"success":"failed")+'"></span><div><strong>'+esc(x.id)+'</strong><small>'+(["installed","completed"].includes(x.status)?esc(x.message||"Concluído"):esc(x.message||"Falha na operação"))+'</small></div><b>'+(["installed","completed"].includes(x.status)?"Concluído":x.status==="cancelled"?"Cancelado":"Erro")+'</b></div>').join(""):empty("Os detalhes aparecerão aqui quando uma operação iniciar.");
  const history=p.history||[];
- $("processing-history").innerHTML=history.length?history.map(item=>'<div class="queue-result"><span class="queue-dot '+(item.status==="completed"?"success":"failed")+'"></span><div><strong>'+esc(item.resourceId||item.application||"Fila de dependências")+'</strong><small>'+esc(item.current||item.status)+' · '+(item.finishedAt?new Date(item.finishedAt*1000).toLocaleString():"")+'</small></div><b>'+ (item.status==="completed"?"Concluído":item.status==="cancelled"?"Cancelado":"Falha")+'</b></div>').join(""):empty("As operações concluídas, canceladas ou com falha aparecerão aqui.");
+ $("processing-history").innerHTML=history.length?history.map(item=>'<div class="queue-result"><span class="queue-dot '+(item.status==="completed"?"success":"failed")+'"></span><div><strong>'+esc(item.taskType==="voice-profile"?"Criação de perfil de voz":item.resourceId||item.application||"Fila de dependências")+'</strong><small>'+esc(item.current||item.status)+' · '+(item.finishedAt?new Date(item.finishedAt*1000).toLocaleString():"")+'</small></div><b>'+ (item.status==="completed"?"Concluído":item.status==="cancelled"?"Cancelado":"Falha")+'</b></div>').join(""):empty("As operações concluídas, canceladas ou com falha aparecerão aqui.");
 }
 async function refreshProcessing(){if(!invoke)return;try{renderProcessing(await invoke("dependency_queue_status"))}catch(e){console.error("Não foi possível atualizar a Central de Processamentos:",e)}}
 function renderVoices(){
@@ -98,11 +98,11 @@ $("copy-root").onclick=async()=>{try{await navigator.clipboard.writeText(state.r
 $("voice-form").onsubmit=async e=>{
  e.preventDefault();const form=e.currentTarget;const data=new FormData(form);const file=data.get("audio");const submit=$("voice-submit");
  if(!file||!file.size)return note("Selecione um arquivo de áudio.",true);
- submit.disabled=true;submit.textContent="Preparando perfil...";
+ submit.disabled=true;submit.textContent="Enviando para processamento...";
  try{
   const audioBase64=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(",")[1]||"");reader.onerror=()=>reject(new Error("Não foi possível ler o arquivo de áudio."));reader.readAsDataURL(file)});
   await invoke("create_voice_profile",{name:data.get("name"),filename:file.name,audioBase64,referenceText:data.get("reference_text")});
-  form.reset();await load();note("Perfil de voz criado e publicado nos shared.config.json dos aplicativos registrados.");
+  form.reset();await refreshProcessing();page("processing");note("Preparação da voz iniciada. Acompanhe o andamento e o resultado na Central de Processamentos.");
  }catch(error){note(String(error),true)}
  finally{submit.disabled=false;submit.textContent="Preparar perfil de voz"}
 };
