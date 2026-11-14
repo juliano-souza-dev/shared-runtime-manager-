@@ -22,10 +22,11 @@ jobs:
         with:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
-      - name: Validate desktop frontend and npm launcher
+      - name: Validate desktop frontend, npm launcher, and voice worker
         run: |
           node --check ui/app.js
           node --check scripts/compilar.mjs
+          python -m py_compile assets/qwen3_tts/voice_runner.py
       - name: Format sources
         run: cargo fmt --all
       - name: Check CLI and library
