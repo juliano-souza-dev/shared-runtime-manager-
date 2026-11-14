@@ -28,6 +28,8 @@ fn silent_command<S: AsRef<OsStr>>(program: S) -> Command {
 }
 
 const DEFAULT_DEPENDENCIES: &[(&str, bool)] = &[
+    ("piper-tts", false),
+    ("qwen3-tts", false),
     ("ffmpeg", true),
     ("ffprobe", true),
     ("yt-dlp", true),
@@ -303,6 +305,207 @@ fn python_module_exists(python: &Path, module: &str) -> bool {
 
 /// Provisions WhisperX in a Shared-owned virtual environment. The application's
 /// own Python installation and site-packages are never modified.
+const QWEN3_TTS_MODEL_ID: &str = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice";
+const PIPER_DEFAULT_VOICE: &str = "en_US-lessac-medium";
+
+fn run_venv_command(python: &Path, args: &[&str], description: &str) -> Result<()> {
+    let output = silent_command(python)
+        .args(args)
+        .output()
+        .with_context(|| format!("Could not start {description}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let detail = if !stderr.trim().is_empty() { stderr.trim() } else { stdout.trim() };
+        let detail: String = detail.chars().rev().take(4000).collect::<String>().chars().rev().collect();
+        bail!("{description} failed: {detail}");
+    }
+    Ok(())
+}
+
+fn ensure_shared_venv(root: &Path, runtime: &Path) -> Result<PathBuf> {
+    let venv = runtime.join("venv");
+    let interpreter = venv_python(&venv);
+    if !interpreter.is_file() {
+        let base_python = ensure_python()?;
+        let venv_path = venv.to_string_lossy().into_owned();
+        if base_python == "py" {
+            python_command(&base_python, &["-3", "-m", "venv", &venv_path])?;
+        } else {
+            python_command(&base_python, &["-m", "venv", &venv_path])?;
+        }
+    }
+    if !interpreter.is_file() {
+        bail!("The isolated Shared Python environment was not created: {}", interpreter.display());
+    }
+    let _ = root;
+    Ok(interpreter)
+}
+
+fn write_runtime_manifest(runtime: &Path, manifest: &Value) -> Result<()> {
+    let path = runtime.join("runtime.json");
+    fs::write(&path, serde_json::to_vec_pretty(manifest)?)
+        .with_context(|| format!("Could not write runtime manifest {}", path.display()))?;
+    Ok(())
+}
+
+fn ensure_piper_tts(root: &Path) -> Result<PathBuf> {
+    let runtime = root.join("runtimes/piper-tts");
+    let voices = root.join("models/piper-tts");
+    fs::create_dir_all(&runtime)?;
+    fs::create_dir_all(&voices)?;
+    super::dependency_queue::report_install_progress(5, "Preparando o ambiente isolado do Piper TTS")?;
+
+    let interpreter = ensure_shared_venv(root, &runtime)?;
+    if !python_module_exists(&interpreter, "piper") {
+        super::dependency_queue::report_install_progress(25, "Instalando Piper TTS e o mecanismo ONNX para CPU")?;
+        run_venv_command(
+            &interpreter,
+            &["-m", "pip", "install", "--upgrade", "pip"],
+            "Piper pip preparation",
+        )?;
+        run_venv_command(
+            &interpreter,
+            &["-m", "pip", "install", "piper-tts"],
+            "Piper TTS installation",
+        )?;
+    }
+
+    let model = voices.join(format!("{PIPER_DEFAULT_VOICE}.onnx"));
+    let model_config = voices.join(format!("{PIPER_DEFAULT_VOICE}.onnx.json"));
+    if !(model.is_file() && model_config.is_file()) {
+        super::dependency_queue::report_install_progress(65, "Baixando a voz inglesa padrão do Piper")?;
+        let voice_dir = voices.to_string_lossy().into_owned();
+        run_venv_command(
+            &interpreter,
+            &["-m", "piper.download_voices", "--data-dir", &voice_dir, PIPER_DEFAULT_VOICE],
+            "Piper English voice download",
+        )?;
+    }
+
+    super::dependency_queue::report_install_progress(90, "Preparando o executor de síntese Piper")?;
+    let runner = runtime.join("runner.py");
+    let source = include_str!("../assets/piper_tts/runner.py");
+    if !runner.is_file() || fs::read_to_string(&runner).ok().as_deref() != Some(source) {
+        fs::write(&runner, source)?;
+    }
+    if !python_module_exists(&interpreter, "onnxruntime") || !(model.is_file() && model_config.is_file()) {
+        bail!("Piper TTS did not pass validation. Check the isolated Python environment and voice files.");
+    }
+    let providers_script = "import onnxruntime as ort; assert 'CPUExecutionProvider' in ort.get_available_providers()";
+    run_venv_command(&interpreter, &["-c", providers_script], "Piper CPU provider validation")?;
+
+    write_runtime_manifest(&runtime, &json!({
+        "schemaVersion": "1.0",
+        "runtime": "piper-tts",
+        "python": interpreter,
+        "runner": runner,
+        "device": "cpu",
+        "voice": PIPER_DEFAULT_VOICE,
+        "model": model,
+        "modelConfig": model_config,
+        "language": "en"
+    }))?;
+    super::dependency_queue::report_install_progress(100, "Piper TTS pronto para uso em CPU")?;
+    println!("Piper TTS CPU runtime is ready: {}", runtime.display());
+    Ok(runtime)
+}
+
+fn ensure_qwen3_tts(root: &Path) -> Result<PathBuf> {
+    let runtime = root.join("runtimes/qwen3-tts");
+    let model = root.join("models/qwen3-tts/0.6B-CustomVoice");
+    let cache = root.join("cache/huggingface");
+    fs::create_dir_all(&runtime)?;
+    fs::create_dir_all(&model)?;
+    fs::create_dir_all(&cache)?;
+    super::dependency_queue::report_install_progress(5, "Preparando o ambiente isolado do Qwen3-TTS 0.6B")?;
+
+    let interpreter = ensure_shared_venv(root, &runtime)?;
+    if !python_module_exists(&interpreter, "torch") {
+        super::dependency_queue::report_install_progress(20, "Instalando PyTorch exclusivamente para CPU, sem CUDA")?;
+        run_venv_command(
+            &interpreter,
+            &["-m", "pip", "install", "--upgrade", "pip"],
+            "Qwen3-TTS pip preparation",
+        )?;
+        run_venv_command(
+            &interpreter,
+            &[
+                "-m", "pip", "install", "torch", "torchaudio",
+                "--index-url", "https://download.pytorch.org/whl/cpu",
+            ],
+            "PyTorch CPU installation",
+        )?;
+    }
+
+    if !python_module_exists(&interpreter, "qwen_tts") {
+        super::dependency_queue::report_install_progress(45, "Instalando Qwen3-TTS e dependências de síntese")?;
+        run_venv_command(
+            &interpreter,
+            &["-m", "pip", "install", "qwen-tts"],
+            "Qwen3-TTS package installation",
+        )?;
+    }
+
+    let model_config = model.join("config.json");
+    let model_weights = model.join("model.safetensors");
+    if !(model_config.is_file() && model_weights.is_file()) {
+        super::dependency_queue::report_install_progress(70, "Baixando o modelo Qwen3-TTS 0.6B CustomVoice. O download pode ultrapassar 2 GB.")?;
+        let model_path = model.to_string_lossy().into_owned();
+        let cache_path = cache.to_string_lossy().into_owned();
+        let script = "import sys; from huggingface_hub import snapshot_download; snapshot_download(repo_id=sys.argv[1], local_dir=sys.argv[2], cache_dir=sys.argv[3])";
+        let output = silent_command(&interpreter)
+            .arg("-c")
+            .arg(script)
+            .arg(QWEN3_TTS_MODEL_ID)
+            .arg(&model_path)
+            .arg(&cache_path)
+            .env("HF_HUB_DISABLE_TELEMETRY", "1")
+            .output()
+            .context("Could not start the Qwen3-TTS model download")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let detail = if !stderr.trim().is_empty() { stderr.trim() } else { stdout.trim() };
+            let detail: String = detail.chars().rev().take(4000).collect::<String>().chars().rev().collect();
+            bail!("Qwen3-TTS model download failed: {detail}");
+        }
+    }
+
+    super::dependency_queue::report_install_progress(92, "Preparando e validando o executor Qwen3-TTS para CPU")?;
+    let runner = runtime.join("runner.py");
+    let source = include_str!("../assets/qwen3_tts/runner.py");
+    if !runner.is_file() || fs::read_to_string(&runner).ok().as_deref() != Some(source) {
+        fs::write(&runner, source)?;
+    }
+    if !python_module_exists(&interpreter, "qwen_tts")
+        || !python_module_exists(&interpreter, "soundfile")
+        || !(model_config.is_file() && model_weights.is_file())
+    {
+        bail!("Qwen3-TTS did not pass validation. Check the isolated Python environment and model files.");
+    }
+    let cpu_script = "import torch; assert torch.version.cuda is None, 'CUDA-enabled PyTorch detected'; assert torch.cuda.is_available() is False";
+    run_venv_command(&interpreter, &["-c", cpu_script], "Qwen3-TTS CPU-only validation")?;
+
+    write_runtime_manifest(&runtime, &json!({
+        "schemaVersion": "1.0",
+        "runtime": "qwen3-tts",
+        "python": interpreter,
+        "runner": runner,
+        "device": "cpu",
+        "dtype": "float32",
+        "modelId": QWEN3_TTS_MODEL_ID,
+        "model": model,
+        "defaultLanguage": "English",
+        "defaultSpeaker": "Aiden",
+        "supportsVoiceCloning": false,
+        "supportsCustomVoice": true
+    }))?;
+    super::dependency_queue::report_install_progress(100, "Qwen3-TTS 0.6B pronto para uso em CPU")?;
+    println!("Qwen3-TTS 0.6B CPU runtime is ready: {}", runtime.display());
+    Ok(runtime)
+}
+
 fn ensure_forced_alignment(root: &Path) -> Result<PathBuf> {
     let runtime = root.join("runtimes/forced-alignment");
     let venv = runtime.join("venv");
@@ -388,6 +591,8 @@ pub(crate) fn ensure_dependency(root: &Path, id: &str) -> Result<PathBuf> {
             Ok(directory)
         }
         "forced-alignment" => ensure_forced_alignment(root),
+        "piper-tts" => ensure_piper_tts(root),
+        "qwen3-tts" => ensure_qwen3_tts(root),
         other => bail!("Unknown dependency '{other}'. No installer is registered in the Shared catalog."),
     }
 }
@@ -489,7 +694,7 @@ mod tests {
     }
 
     #[test]
-    fn forced_alignment_is_optional_by_default() {
+    fn piper_and_qwen3_tts_are_optional_by_default() {        let dependencies = default_contract()["dependencies"].as_array().unwrap().clone();        for id in ["piper-tts", "qwen3-tts"] {            let dependency = dependencies.iter().find(|item| item["id"] == id).unwrap();            assert_eq!(dependency["required"], false);        }    }    #[test]    fn forced_alignment_is_optional_by_default() {
         let dependencies = default_contract()["dependencies"].as_array().unwrap().clone();
         let alignment = dependencies.iter().find(|item| item["id"] == "forced-alignment").unwrap();
         assert_eq!(alignment["required"], false);
