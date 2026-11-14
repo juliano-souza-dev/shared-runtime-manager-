@@ -158,6 +158,53 @@ The resolved runtime directory is provisioned to declaring applications as `shar
 
 The resource is opt-in at the application-contract level. Applications declaring `required: false` do not download PyTorch/WhisperX during registration or synchronization and can install it explicitly when needed. Applications declaring `required: true` automatically queue the resource during registration and synchronization. For example, Nova Generator declares it as required because word-level alignment is part of its workflow.
 
+
+## Local TTS runtimes for Anki audio
+
+Two optional CPU-first speech resources are available for applications that declare them in their own `shared.dependencies` list:
+
+```json
+{ "id": "piper-tts", "required": false }
+{ "id": "qwen3-tts", "required": false }
+```
+
+Install only when an application requests them:
+
+```powershell
+srm install piper-tts --app nova-generator
+srm install qwen3-tts --app nova-generator
+```
+
+Both resources use their own Shared-managed Python virtual environment. They do not install packages into the application's Python environment or the global Python site-packages.
+
+### Piper TTS
+
+Piper is the lightweight CPU speech synthesizer. Shared installs the `piper-tts` package with ONNX Runtime's CPU provider and downloads the default English voice `en_US-lessac-medium`. CUDA execution is not enabled. The voice model and its JSON configuration are stored under `models/piper-tts`.
+
+The resolved resource path is `shared.resources.piper-tts`. Inside that directory:
+- `venv` contains the isolated Python environment.
+- `runner.py` is a persistent JSON-lines worker.
+- `runtime.json` describes the Python executable, worker, voice model, and language.
+
+### Qwen3-TTS 0.6B
+
+Qwen3-TTS is the higher-quality AI voice generation runtime. Shared installs PyTorch and torchaudio from the official CPU-only PyTorch wheel index, then installs `qwen-tts`. It downloads the official `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` model into the central Shared model directory. The worker explicitly selects CPU, float32, and SDPA attention. CUDA and FlashAttention are not required or used.
+
+The resolved resource path is `shared.resources.qwen3-tts`. Inside that directory:
+- `venv` contains the isolated CPU-only Python environment.
+- `runner.py` is a persistent JSON-lines worker.
+- `runtime.json` describes the model path, Python executable, worker, device, and default speaker.
+
+The 0.6B CustomVoice model provides its preset speaker voices and supports English and Portuguese among its supported languages. This variant does not provide voice cloning or voice design; those capabilities require different model variants and are not downloaded by this dependency.
+
+### Worker protocol
+
+Both workers stay alive and accept one JSON object per standard-input line. Each request requires `text` and `output_path`. Piper uses its installed default English voice. Qwen accepts optional `language` (default `English`) and `speaker` (default `Aiden`). Each response is one JSON object on standard output with `status`, the request `id`, and either the generated file path or an error.
+
+Applications must read the absolute runtime and model paths from their own generated `shared.config.json` and the runtime's `runtime.json`. They must not hardcode Shared directories or reconstruct paths.
+
+Both dependencies are optional by default. Declaring them with `required: false` keeps them out of initial registration and synchronization downloads; the application can request installation when its audio-generation stage needs them. Model downloads are large, especially Qwen3-TTS, and may take time depending on the network.
+
 ## Shared dependencies
 
 ```powershell
