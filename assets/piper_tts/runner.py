@@ -1,6 +1,5 @@
 """Persistent JSON-lines worker for the Shared Piper CPU runtime."""
 import json
-import os
 import sys
 import traceback
 import wave
@@ -23,6 +22,7 @@ def main() -> int:
     voice = PiperVoice.load(str(voice_path), use_cuda=False)
 
     for raw in sys.stdin:
+        request = {}
         try:
             request = json.loads(raw)
             text = str(request.get("text", "")).strip()
