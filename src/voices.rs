@@ -106,10 +106,12 @@ fn run_worker(python: &Path, runner: &Path, model: &Path, profile: &Path, reques
     child.stdin.take().ok_or_else(|| anyhow!("Entrada do executor indisponível"))?
         .write_all(format!("{}\n", serde_json::to_string(&request)?).as_bytes())?;
     let output = child.wait_with_output()?;
+    let response: Value = serde_json::from_slice(&output.stdout)
+        .with_context(|| format!("O executor de voz retornou uma resposta inválida: {}", String::from_utf8_lossy(&output.stderr).trim()))?;
     if !output.status.success() {
-        bail!("Falha no executor de voz: {}", String::from_utf8_lossy(&output.stderr).trim());
+        bail!("{}", response.get("error").and_then(Value::as_str).unwrap_or("Falha no executor de voz."));
     }
-    serde_json::from_slice(&output.stdout).context("O executor de voz retornou uma resposta inválida")
+    Ok(response)
 }
 
 pub fn list() -> Result<Value> {
@@ -134,10 +136,12 @@ pub fn create_profile(name: &str, filename: &str, audio_base64: &str, reference_
     let ffmpeg = executable(&root, "ffmpeg")?;
     let ffprobe = executable(&root, "ffprobe")?;
     let (python, runner, model) = runtime_info(&root)?;
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let clock = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let now = clock.as_secs();
+    let unique_stamp = clock.as_millis();
     let slug: String = name.to_ascii_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
     let slug = slug.split('-').filter(|part| !part.is_empty()).collect::<Vec<_>>().join("-");
-    let id = format!("{}-{}", if slug.is_empty() { "voice" } else { &slug }, now);
+    let id = format!("{}-{}", if slug.is_empty() { "voice" } else { &slug }, unique_stamp);
     let profile = root.join("voices").join(&id);
     fs::create_dir_all(&profile)?;
     let source = profile.join(format!("reference.{extension}"));
