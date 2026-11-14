@@ -185,7 +185,7 @@ Both resources use their own Shared-managed Python virtual environment. They do 
 
 ### Piper TTS
 
-Piper is the lightweight CPU speech synthesizer. Shared installs the `piper-tts` package with ONNX Runtime's CPU provider and downloads the default English voice `en_US-lessac-medium`. CUDA execution is not enabled. The voice model and its JSON configuration are stored under `models/piper-tts`.
+Piper is the lightweight CPU speech synthesizer. Shared installs the `piper-tts` package with ONNX Runtime's CPU provider and downloads the default English voice `en_US-mike-medium` (CC0 voice dataset and CC0 base model). CUDA execution is not enabled. The voice model and its JSON configuration are stored under `models/piper-tts`.
 
 The resolved resource path is `shared.resources.piper-tts`. Inside that directory:
 - `venv` contains the isolated Python environment.
