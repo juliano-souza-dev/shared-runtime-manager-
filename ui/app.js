@@ -1,7 +1,7 @@
 const invoke=window.__TAURI__?.core?.invoke,$=id=>document.getElementById(id);
-let state={applications:[],resources:[],providers:[],root:"",catalog:[]};
+let state={applications:[],resources:[],providers:[],root:"",catalog:[],voices:{default_voice_id:null,voices:[]}};
 let processingStatus={status:"idle",progress:0,current:"Nenhuma operação executada",results:[]};
-const titles={overview:"Visão geral",apps:"Aplicativos",apis:"Provedores de API",resources:"Biblioteca de dependências",processing:"Central de processamentos"};
+const titles={overview:"Visão geral",apps:"Aplicativos",apis:"Provedores de API",resources:"Biblioteca de dependências",voices:"Biblioteca de vozes",processing:"Central de processamentos"};
 function note(message,error=false){const n=$("notice");n.textContent=message;n.classList.remove("hidden","error");if(error)n.classList.add("error");clearTimeout(note.timer);note.timer=setTimeout(()=>n.classList.add("hidden"),6500)}
 async function act(command,args={},message){try{await invoke(command,args);if(message)note(message);await load()}catch(e){note(String(e),true);throw e}}
 function esc(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
@@ -12,11 +12,21 @@ function delay(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
 
 function showQueueResults(status){const box=$("queue-results"),list=$("queue-result-list");box.classList.remove("hidden");const results=status.results||[];list.innerHTML=results.map(r=>'<div class="queue-result"><span class="queue-dot '+(r.status==="installed"?"success":"failed")+'"></span><div><strong>'+esc(r.id)+'</strong><small>'+(r.status==="installed"?"Instalado ou já disponível":esc(r.message||"Falha na instalação"))+'</small></div><b>'+(r.status==="installed"?"Concluído":"Erro")+'</b></div>').join("")||empty("Nenhuma dependência processada.");}
 function appOpts(){return state.applications.map(a=>'<option value="'+esc(a.id)+'">'+esc(a.name)+' ('+esc(a.id)+')</option>').join("")}
-async function load(){if(!invoke){note("Abra o Shared Runtime Manager pelo executável desktop.",true);return}try{const [dashboard,catalog]=await Promise.all([invoke("dashboard_data"),invoke("provider_catalog")]);state={...dashboard,catalog:catalog.providers||[]};render();await refreshProcessing()}catch(e){note(String(e),true)}}
+async function load(){if(!invoke){note("Abra o Shared Runtime Manager pelo executável desktop.",true);return}try{const [dashboard,catalog,voices]=await Promise.all([invoke("dashboard_data"),invoke("provider_catalog"),invoke("voice_library")]);state={...dashboard,catalog:catalog.providers||[],voices};render();await refreshProcessing()}catch(e){note(String(e),true)}}
 function renderProcessing(status){if(status)processingStatus=status;const p=processingStatus||{};const running=["queued","installing","running"].includes(p.status);const hasFailures=p.status==="error"||(p.results||[]).some(item=>item.status!=="installed");const badge=$("processing-status-badge");if(!badge)return;badge.textContent=running?"Processamento em andamento":hasFailures?"Concluído com falhas":p.status==="completed"?"Concluído":"Sem tarefas ativas";badge.className="processing-badge "+(running?"running":hasFailures?"failed":p.status==="completed"?"completed":"idle");const count=$("processing-nav-count");if(count){count.textContent=running?"1":"";count.classList.toggle("hidden",!running)}const percent=Math.max(0,Math.min(100,Number(p.progress||0)));$("processing-current").innerHTML='<div class="processing-card"><div class="processing-card-top"><div><small>OPERAÇÃO ATUAL</small><h3>'+esc(p.current||"Nenhuma operação executada")+'</h3><p>'+esc(p.application?"Aplicativo: "+p.application:"Aguardando uma operação do Shared")+'</p></div><strong>'+percent+'%</strong></div><div class="processing-track"><i class="'+(running&&percent===0?"indeterminate":"")+'" style="width:'+percent+'%"></i></div><div class="processing-meta"><span>'+esc(p.status||"idle")+'</span><span>'+(p.completed??0)+' / '+(p.total??0)+' dependências</span></div></div>';const results=p.results||[];$("processing-results").innerHTML=results.length?results.map(x=>'<div class="queue-result"><span class="queue-dot '+(x.status==="installed"?"success":"failed")+'"></span><div><strong>'+esc(x.id)+'</strong><small>'+(x.status==="installed"?"Instalado ou já disponível":esc(x.message||"Falha na instalação"))+'</small></div><b>'+(x.status==="installed"?"Concluído":"Erro")+'</b></div>').join(""):empty("Os detalhes aparecerão aqui quando uma operação iniciar.")}
 async function refreshProcessing(){if(!invoke)return;try{renderProcessing(await invoke("dependency_queue_status"))}catch(e){console.error("Não foi possível atualizar a Central de Processamentos:",e)}}
+function renderVoices(){
+ const list=$("voice-list");if(!list)return;
+ const voices=state.voices?.voices||[];
+ if(!voices.length){list.innerHTML=empty("Nenhuma voz criada. Instale o Qwen3-TTS Base e prepare seu primeiro perfil.");return}
+ list.innerHTML=voices.map(v=>{
+  const isDefault=state.voices.default_voice_id===v.id;
+  return '<article class="voice-item"><div class="voice-item-head"><div><strong>'+esc(v.name)+'</strong><small>'+esc(v.id)+' · '+Number(v.duration_seconds||0).toFixed(1)+'s de referência</small></div>'+(isDefault?'<span class="chip good">Padrão</span>':'<button class="small-btn" data-default-voice="'+esc(v.id)+'">Definir como padrão</button>')+'</div><div class="meta">Modelo: Qwen3-TTS 1.7B Base<br>Perfil: '+esc(v.profile_path)+'</div><div class="voice-preview" id="voice-preview-'+esc(v.id)+'"></div><div class="voice-actions"><button class="small-btn" data-preview-voice="'+esc(v.id)+'">▶ Gerar prévia</button></div></article>';
+ }).join("");
+}
 function render(){
  $("root-path").textContent=state.root;
+ renderVoices();
  $("stats").innerHTML=[["Aplicativos",state.applications.length,"projetos cadastrados"],["Provedores de API",state.providers.length,"configurações globais"],["Recursos",state.resources.length,"instalações compartilhadas"]].map(x=>'<div class="stat"><small>'+x[0]+'</small><strong>'+x[1]+'</strong><span>'+x[2]+'</span></div>').join("");
  $("overview-apps").innerHTML=state.applications.length?state.applications.slice(0,4).map(a=>'<div class="compact"><strong>'+esc(a.name)+'</strong><small>'+esc(a.id)+'</small></div>').join(""):empty("Nenhum aplicativo cadastrado.");
  $("overview-apis").innerHTML=state.providers.length?state.providers.slice(0,4).map(p=>'<div class="compact"><strong>'+esc(p.name)+'</strong><small>'+p.authorized_apps.length+' acesso(s)</small></div>').join(""):empty("Nenhum provedor configurado.");
@@ -51,6 +61,28 @@ $("resources-list").onclick=async e=>{const b=e.target.closest("[data-delete-res
 $("apis-list").onclick=async e=>{const k=e.target.closest("[data-key]");if(k){$("key-form").elements.provider.value=k.dataset.key;$("key-dialog").showModal();return}const m=e.target.closest("[data-models]");if(m){const p=state.providers.find(x=>x.id===m.dataset.models);try{const models=await invoke("available_api_models",{provider:p.id});const select=$("available-models");select.innerHTML=models.map(id=>"<option value=\""+esc(id)+"\">"+esc(id)+"</option>").join("");const f=$("models-form");f.elements.provider.value=p.id;f.elements.name.value=p.name;f.elements.endpoint.value=p.endpoint;select.value=p.model;if(!models.includes(p.model))select.value=models[0];$("models-hint").textContent=models.length+" modelos retornados pelo provedor.";$("models-dialog").showModal()}catch(err){note(String(err),true)}return}const g=e.target.closest("[data-grant]");if(g){if(!state.applications.length)return note("Cadastre um aplicativo antes de conceder acesso.",true);$("grant-form").elements.provider.value=g.dataset.grant;$("grant-form").elements.app_id.innerHTML=appOpts();$("grant-dialog").showModal();return}const r=e.target.closest("[data-provider]");if(r&&confirm("Revogar acesso de "+r.dataset.app+" ao provedor "+r.dataset.provider+"?"))await act("revoke_api",{provider:r.dataset.provider,appId:r.dataset.app},"Acesso revogado.")};
 
 $("copy-root").onclick=async()=>{try{await navigator.clipboard.writeText(state.root);note("Caminho copiado.")}catch{note("Não foi possível copiar o caminho.",true)}};
+$("voice-form").onsubmit=async e=>{
+ e.preventDefault();const form=e.currentTarget;const data=new FormData(form);const file=data.get("audio");const submit=$("voice-submit");
+ if(!file||!file.size)return note("Selecione um arquivo de áudio.",true);
+ submit.disabled=true;submit.textContent="Preparando perfil...";
+ try{
+  const audioBase64=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(",")[1]||"");reader.onerror=()=>reject(new Error("Não foi possível ler o arquivo de áudio."));reader.readAsDataURL(file)});
+  await invoke("create_voice_profile",{name:data.get("name"),filename:file.name,audioBase64,referenceText:data.get("reference_text")});
+  form.reset();await load();note("Perfil de voz criado e publicado nos shared.config.json dos aplicativos registrados.");
+ }catch(error){note(String(error),true)}
+ finally{submit.disabled=false;submit.textContent="Preparar perfil de voz"}
+};
+$("voice-list").onclick=async e=>{
+ const set=e.target.closest("[data-default-voice]");
+ if(set){try{await invoke("set_default_voice",{voiceId:set.dataset.defaultVoice});await load();note("Voz padrão atualizada nos aplicativos registrados.")}catch(error){note(String(error),true)}return}
+ const preview=e.target.closest("[data-preview-voice]");
+ if(preview){preview.disabled=true;preview.textContent="Gerando...";
+  try{const path=await invoke("preview_voice",{voiceId:preview.dataset.previewVoice,text:"Olá! Esta é uma prévia da minha voz sintetizada pelo Shared Runtime."});const url=window.__TAURI__.core.convertFileSrc(path);$("voice-preview-"+preview.dataset.previewVoice).innerHTML='<audio controls src="'+esc(url)+'"></audio>'}
+  catch(error){note(String(error),true)}
+  finally{preview.disabled=false;preview.textContent="▶ Gerar prévia"}
+ }
+};
+$("voices-refresh").onclick=load;
 $("processing-refresh").onclick=refreshProcessing;
 load();
 setInterval(refreshProcessing,1000);
