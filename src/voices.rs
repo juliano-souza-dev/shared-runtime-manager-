@@ -105,9 +105,15 @@ fn runtime_info(root: &Path) -> Result<(PathBuf, PathBuf, PathBuf)> {
     }
     let manifest: Value = serde_json::from_slice(&fs::read(&manifest_path)?)?;
     let python = manifest.get("python").and_then(Value::as_str).ok_or_else(|| anyhow!("Runtime sem caminho do Python"))?;
-    let runner = manifest.get("runner").and_then(Value::as_str).ok_or_else(|| anyhow!("Runtime sem caminho do executor"))?;
-    let model = manifest.get("model").and_then(Value::as_str).ok_or_else(|| anyhow!("Runtime sem caminho do modelo"))?;
-    Ok((PathBuf::from(python), PathBuf::from(runner), PathBuf::from(model)))
+    let runner = PathBuf::from(manifest.get("runner").and_then(Value::as_str).ok_or_else(|| anyhow!("Runtime sem caminho do executor"))?);
+    let model = PathBuf::from(manifest.get("model").and_then(Value::as_str).ok_or_else(|| anyhow!("Runtime sem caminho do modelo"))?);
+    let python = PathBuf::from(python);
+    // Keep already-installed Shared runtimes in sync with the bundled worker after app updates.
+    let source = include_str!("../assets/qwen3_tts/voice_runner.py");
+    if !runner.is_file() || fs::read_to_string(&runner).ok().as_deref() != Some(source) {
+        fs::write(&runner, source).with_context(|| format!("Não foi possível atualizar o executor em {}", runner.display()))?;
+    }
+    Ok((python, runner, model))
 }
 
 fn run_worker(python: &Path, runner: &Path, model: &Path, profile: &Path, request: Value) -> Result<Value> {
@@ -128,6 +134,8 @@ fn run_worker(python: &Path, runner: &Path, model: &Path, profile: &Path, reques
 
 pub fn list() -> Result<Value> {
     let root = root()?;
+    // Refresh the installed worker whenever the voice library is opened.
+    let _ = runtime_info(&root);
     let registry = read_registry(&root)?;
     Ok(json!({ "default_voice_id": registry.default_voice_id, "voices": registry.voices }))
 }
