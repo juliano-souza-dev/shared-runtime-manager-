@@ -14,7 +14,7 @@ use std::{
 
 const MODEL_ID: &str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base";
 
-fn run_cancellable(mut command: Command, description: &str) -> Result<()> {
+fn run_cancellable(command: &mut Command, description: &str) -> Result<()> {
     if super::dependency_queue::cancel_requested() { bail!("Operação cancelada pelo usuário."); }
     let mut child = command.spawn().with_context(|| format!("Não foi possível iniciar {description}"))?;
     loop {
@@ -291,7 +291,7 @@ pub(crate) fn ensure_runtime(root: &Path) -> Result<PathBuf> {
         let mut command = silent_command(base);
         if cfg!(windows) { command.arg("-3"); }
         command.args(["-m", "venv"]).arg(&venv);
-        run_cancellable(command, "criação do ambiente Python do Qwen3-TTS Base")
+        run_cancellable(&mut command, "criação do ambiente Python do Qwen3-TTS Base")
             .context("Não foi possível criar o ambiente Python do Qwen3-TTS Base.")?;
     }
     let cpu_check = "import torch; assert torch.version.cuda is None and not torch.cuda.is_available()";
