@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{fs, sync::atomic::{AtomicBool, Ordering}};
 use shared_runtime_manager::{api, dependency_queue, manager};
 
 static QUEUE_RUNNING: AtomicBool = AtomicBool::new(false);
@@ -13,6 +13,28 @@ struct Dashboard {
     providers: Vec<api::ProviderInfo>,
 }
 fn error_text(error: impl std::fmt::Display) -> String { error.to_string() }
+
+fn write_voice_processing_status(status: &str, current: &str, result: Option<serde_json::Value>) -> Result<(), String> {
+    let root = manager::root().map_err(error_text)?;
+    let registry = root.join("registry");
+    fs::create_dir_all(&registry).map_err(error_text)?;
+    let target = registry.join("dependency-queue-status.json");
+    let temporary = registry.join("dependency-queue-status.json.tmp");
+    let terminal = status == "completed" || status == "error";
+    let value = serde_json::json!({
+        "status": status,
+        "progress": if status == "completed" { serde_json::Value::from(100) } else { serde_json::Value::Null },
+        "progressMode": if status == "completed" { "determinate" } else { "indeterminate" },
+        "current": current,
+        "taskType": "voice-profile",
+        "completed": if terminal { 1 } else { 0 },
+        "total": 1,
+        "results": result.into_iter().collect::<Vec<_>>()
+    });
+    fs::write(&temporary, serde_json::to_vec_pretty(&value).map_err(error_text)?).map_err(error_text)?;
+    if target.exists() { fs::remove_file(&target).map_err(error_text)?; }
+    fs::rename(&temporary, &target).map_err(error_text)
+}
 
 #[tauri::command]
 fn dashboard_data() -> Result<Dashboard, String> {
@@ -167,8 +189,55 @@ fn voice_library() -> Result<serde_json::Value, String> {
     shared_runtime_manager::voices::list().map_err(error_text)
 }
 #[tauri::command]
-fn create_voice_profile(name: String, filename: String, audio_base64: String, reference_text: String) -> Result<serde_json::Value, String> {
-    shared_runtime_manager::voices::create_profile(&name, &filename, &audio_base64, &reference_text).map_err(error_text)
+fn create_voice_profile(name: String, filename: String, audio_base64: String, reference_text: String) -> Result<(), String> {
+    if QUEUE_RUNNING.swap(true, Ordering::SeqCst) {
+        return Err("Já existe um processamento em andamento. Aguarde antes de preparar outra voz.".to_owned());
+    }
+    dependency_queue::begin_operation();
+    if let Err(error) = write_voice_processing_status(
+        "running",
+        "Preparando o áudio de referência e executando o Qwen3-TTS Base...",
+        None,
+    ) {
+        QUEUE_RUNNING.store(false, Ordering::SeqCst);
+        return Err(error);
+    }
+    std::thread::spawn(move || {
+        match shared_runtime_manager::voices::create_profile(&name, &filename, &audio_base64, &reference_text) {
+            Ok(voice) => {
+                let voice_name = voice.get("name").and_then(serde_json::Value::as_str).unwrap_or(&name);
+                let result = serde_json::json!({
+                    "id": "Perfil de voz",
+                    "status": "completed",
+                    "message": format!("Perfil '{voice_name}' criado e publicado nos aplicativos registrados.")
+                });
+                if write_voice_processing_status(
+                    "completed",
+                    &format!("Perfil de voz '{voice_name}' criado com sucesso."),
+                    Some(result),
+                ).is_ok() {
+                    let _ = dependency_queue::record_history();
+                }
+            }
+            Err(error) => {
+                let detail = format!("{error:#}");
+                let result = serde_json::json!({
+                    "id": "Perfil de voz",
+                    "status": "error",
+                    "message": detail
+                });
+                if write_voice_processing_status(
+                    "error",
+                    "Falha ao preparar o perfil de voz.",
+                    Some(result),
+                ).is_ok() {
+                    let _ = dependency_queue::record_history();
+                }
+            }
+        }
+        QUEUE_RUNNING.store(false, Ordering::SeqCst);
+    });
+    Ok(())
 }
 #[tauri::command]
 fn set_default_voice(voice_id: String) -> Result<(), String> {
