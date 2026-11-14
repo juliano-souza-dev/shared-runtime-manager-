@@ -211,7 +211,7 @@ Both workers stay alive and accept one JSON object per standard-input line. Each
 
 Applications must read the absolute runtime and model paths from their own generated `shared.config.json` and the runtime's `runtime.json`. They must not hardcode Shared directories or reconstruct paths.
 
-Both dependencies are optional by default. Declaring them with `required: false` keeps them out of initial registration and synchronization downloads; the application can request installation when its audio-generation stage needs them. Model downloads are large, especially Qwen3-TTS, and may take time depending on the network.
+Both dependencies are optional by default. Declaring them with `required: false` keeps them out of initial registration and synchronization downloads. They can be installed on demand from the Shared dependency library or with the CLI commands above; the application must declare the resource before using the `--app` option. If a project declares one with `required: true`, Shared queues it during registration or synchronization. The application never calls Shared Runtime Manager directly: it reads the resolved paths that Shared writes into its own `shared.config.json`. Model downloads are large, especially Qwen3-TTS, and may take time depending on the network.
 
 ## Shared dependencies
 
