@@ -22,8 +22,10 @@ jobs:
         with:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
-      - name: Validate npm build launcher
-        run: node --check scripts/compilar.mjs
+      - name: Validate desktop frontend and npm launcher
+        run: |
+          node --check ui/app.js
+          node --check scripts/compilar.mjs
       - name: Format sources
         run: cargo fmt --all
       - name: Check CLI and library
