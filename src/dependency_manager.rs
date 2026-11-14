@@ -472,7 +472,7 @@ fn ensure_qwen3_tts(root: &Path) -> Result<PathBuf> {
     let model_config = model.join("config.json");
     let model_weights = model.join("model.safetensors");
     if !(model_config.is_file() && model_weights.is_file()) {
-        super::dependency_queue::report_install_progress(70, "Baixando o modelo Qwen3-TTS 1.7B CustomVoice. O download pode ultrapassar 2 GB.")?;
+        super::dependency_queue::report_install_progress(70, "Baixando o modelo Qwen3-TTS 1.7B CustomVoice. O download ocupa aproximadamente 4,5 GB.")?;
         let model_path = model.to_string_lossy().into_owned();
         let cache_path = cache.to_string_lossy().into_owned();
         let script = "import sys; from huggingface_hub import snapshot_download; snapshot_download(repo_id=sys.argv[1], local_dir=sys.argv[2], cache_dir=sys.argv[3])";
