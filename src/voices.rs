@@ -212,7 +212,7 @@ fn run_worker(python: &Path, runner: &Path, model: &Path, profile: &Path, reques
         let stdout_detail = diagnostic_excerpt(&stdout, 6000);
         let stderr_detail = diagnostic_excerpt(&stderr, 6000);
         format!(
-            "O executor Qwen3-TTS Base não retornou um objeto JSON válido. Código de saída: {}.\\nstdout: {}\\nstderr: {}",
+            "O executor Qwen3-TTS Base não retornou um objeto JSON válido. Código de saída: {}.\nstdout: {}\nstderr: {}",
             output.status,
             if stdout_detail.is_empty() { "<vazio>" } else { &stdout_detail },
             if stderr_detail.is_empty() { "<vazio>" } else { &stderr_detail },
