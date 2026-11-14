@@ -331,6 +331,8 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
     shared["resolvedDependencies"] = serde_json::to_value(installed_resources)?;
     // API providers are Shared-owned and are materialized only for authorized applications.
     shared["apiProviders"] = serde_json::to_value(super::api::providers_for_app(app_id)?)?;
+    // Shared-owned voice profiles are centrally stored and exposed by absolute path.
+    shared["voices"] = super::voices::config_for_consumers(shared_root)?;
 
     document["schemaVersion"] = serde_json::Value::String("1.0".to_owned());
     document["application"] = application;
