@@ -21,29 +21,43 @@ def handle_request(model, profile_path: Path, request: dict, set_stage) -> dict:
                 ref_text=str(request["reference_text"]),
                 x_vector_only_mode=False,
             )
-        # Qwen accepts a dict-of-batches for reusable prompts.
-        prompt = {
-            "ref_code": [item.ref_code for item in items],
-            "ref_spk_embedding": [item.ref_spk_embedding for item in items],
-            "x_vector_only_mode": [item.x_vector_only_mode for item in items],
-            "icl_mode": [item.icl_mode for item in items],
-        }
+        # Keep the complete official prompt objects. Qwen needs ref_text to
+        # rebuild the reference token IDs during generate_voice_clone().
         set_stage("voice_prompt_saving")
-        torch.save(prompt, profile_path / "voice_clone_prompt.pt")
+        torch.save(items, profile_path / "voice_clone_prompt.pt")
         return {"status": "completed", "profile_path": str(profile_path)}
 
     if operation == "synthesize":
         prompt_path = profile_path / "voice_clone_prompt.pt"
         set_stage("voice_prompt_loading")
         prompt = torch.load(prompt_path, map_location="cpu", weights_only=False)
-        # Migrate profiles created by early builds, which stored a list of dicts.
-        if isinstance(prompt, list):
-            prompt = {
-                "ref_code": [item["ref_code"] for item in prompt],
-                "ref_spk_embedding": [item["ref_spk_embedding"] for item in prompt],
-                "x_vector_only_mode": [item["x_vector_only_mode"] for item in prompt],
-                "icl_mode": [item["icl_mode"] for item in prompt],
-            }
+        # Older builds stored an incomplete dict (or list of dicts) that
+        # omitted ref_text. Rebuild it from the profile's normalized reference
+        # audio and the transcript retained in the voice registry.
+        if isinstance(prompt, dict) or (
+            isinstance(prompt, list) and prompt and isinstance(prompt[0], dict)
+        ):
+            reference_audio = request.get("reference_audio") or str(profile_path / "reference.wav")
+            reference_text = str(request.get("reference_text") or "").strip()
+            if not Path(reference_audio).is_file():
+                raise FileNotFoundError(
+                    "Este perfil usa um formato antigo e não possui o áudio de referência necessário para migrá-lo."
+                )
+            if not reference_text:
+                raise ValueError(
+                    "Este perfil usa um formato antigo. Recrie o perfil para salvar a transcrição de referência."
+                )
+            set_stage("reference_audio_encoding")
+            with contextlib.redirect_stdout(sys.stderr):
+                prompt = model.create_voice_clone_prompt(
+                    ref_audio=str(Path(reference_audio).resolve()),
+                    ref_text=reference_text,
+                    x_vector_only_mode=False,
+                )
+            set_stage("voice_prompt_saving")
+            torch.save(prompt, prompt_path)
+        if not isinstance(prompt, (list, tuple)) or not prompt:
+            raise ValueError("O perfil de voz contém um prompt Qwen inválido ou vazio.")
         set_stage("voice_generation")
         with contextlib.redirect_stdout(sys.stderr):
             wavs, sample_rate = model.generate_voice_clone(
