@@ -1,5 +1,6 @@
 """One-shot Qwen3-TTS Base worker for preparing and using reusable voice profiles."""
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -10,7 +11,7 @@ from qwen_tts import Qwen3TTSModel
 
 
 def main() -> int:
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 3:
         print("Usage: voice_runner.py <model-directory> <profile-directory>", file=sys.stderr)
         return 2
     model_path, profile_path = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
@@ -57,5 +58,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    import os
     raise SystemExit(main())
