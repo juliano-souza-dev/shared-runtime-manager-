@@ -8,10 +8,40 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     io::Write,
-    time::{SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 const MODEL_ID: &str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base";
+
+fn run_cancellable(mut command: Command, description: &str) -> Result<()> {
+    if super::dependency_queue::cancel_requested() { bail!("Operação cancelada pelo usuário."); }
+    let mut child = command.spawn().with_context(|| format!("Não foi possível iniciar {description}"))?;
+    loop {
+        if super::dependency_queue::cancel_requested() {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("Operação cancelada pelo usuário.");
+        }
+        if let Some(status) = child.try_wait()? {
+            if status.success() { return Ok(()); }
+            bail!("{description} terminou com código de saída {status}.");
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+}
+
+fn directory_size(path: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(path) else { return 0; };
+    entries.filter_map(Result::ok).map(|entry| {
+        let path = entry.path();
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => directory_size(&path),
+            Ok(kind) if kind.is_file() || kind.is_symlink() => entry.metadata().map(|metadata| metadata.len()).unwrap_or(0),
+            _ => 0,
+        }
+    }).sum()
+}
 
 fn silent_command<S: AsRef<OsStr>>(program: S) -> Command {
     let mut command = Command::new(program);
@@ -260,37 +290,66 @@ pub(crate) fn ensure_runtime(root: &Path) -> Result<PathBuf> {
         let base = if cfg!(windows) { "py" } else { "python3" };
         let mut command = silent_command(base);
         if cfg!(windows) { command.arg("-3"); }
-        let status = command.args(["-m", "venv"]).arg(&venv).status()?;
-        if !status.success() { bail!("Não foi possível criar o ambiente Python do Qwen3-TTS Base."); }
+        command.args(["-m", "venv"]).arg(&venv);
+        run_cancellable(command, "criação do ambiente Python do Qwen3-TTS Base")
+            .context("Não foi possível criar o ambiente Python do Qwen3-TTS Base.")?;
     }
     let cpu_check = "import torch; assert torch.version.cuda is None and not torch.cuda.is_available()";
     let check = silent_command(&python).args(["-c", cpu_check]).status().map(|s| s.success()).unwrap_or(false);
     if !check {
-        let status = silent_command(&python).args(["-m", "pip", "install", "--upgrade", "pip"]).status()?;
-        if !status.success() { bail!("Falha ao preparar pip para Qwen3-TTS Base."); }
-        let status = silent_command(&python).args(["-m", "pip", "install", "--force-reinstall", "torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"]).status()?;
-        if !status.success() { bail!("Falha ao instalar PyTorch CPU para Qwen3-TTS Base."); }
+        run_cancellable(silent_command(&python).args(["-m", "pip", "install", "--upgrade", "pip"]), "preparação do pip")
+            .context("Falha ao preparar pip para Qwen3-TTS Base.")?;
+        run_cancellable(silent_command(&python).args(["-m", "pip", "install", "--force-reinstall", "torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"]), "instalação do PyTorch CPU")
+            .context("Falha ao instalar PyTorch CPU para Qwen3-TTS Base.")?;
     }
     let package_check = silent_command(&python).args(["-c", "import qwen_tts, soundfile"]).status().map(|s| s.success()).unwrap_or(false);
     if !package_check {
         super::dependency_queue::report_install_progress(42, "Instalando Qwen3-TTS Base e dependências de áudio")?;
-        let status = silent_command(&python).args(["-m", "pip", "install", "qwen-tts", "soundfile"]).status()?;
-        if !status.success() { bail!("Falha ao instalar qwen-tts e soundfile."); }
+        run_cancellable(silent_command(&python).args(["-m", "pip", "install", "qwen-tts", "soundfile"]), "instalação do Qwen3-TTS e dependências")
+            .context("Falha ao instalar qwen-tts e soundfile.")?;
     }
     let cpu_still_valid = silent_command(&python).args(["-c", cpu_check]).status().map(|s| s.success()).unwrap_or(false);
     if !cpu_still_valid {
         super::dependency_queue::report_install_progress(58, "Restaurando PyTorch CPU após instalar o Qwen3-TTS")?;
-        let status = silent_command(&python).args(["-m", "pip", "install", "--force-reinstall", "torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"]).status()?;
-        if !status.success() { bail!("Falha ao restaurar PyTorch CPU."); }
+        run_cancellable(silent_command(&python).args(["-m", "pip", "install", "--force-reinstall", "torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"]), "restauração do PyTorch CPU")
+            .context("Falha ao restaurar PyTorch CPU.")?;
     }
     let model_config = model.join("config.json");
     let model_weights = model.join("model.safetensors");
     let model_index = model.join("model.safetensors.index.json");
     if !model_config.is_file() || !(model_weights.is_file() || model_index.is_file()) {
-        super::dependency_queue::report_install_progress(68, "Baixando o modelo oficial Qwen3-TTS 1.7B Base")?;
+        super::dependency_queue::report_install_progress(0, "Baixando o modelo oficial Qwen3-TTS 1.7B Base")?;
         let script = "import sys; from huggingface_hub import snapshot_download; snapshot_download(repo_id='Qwen/Qwen3-TTS-12Hz-1.7B-Base', local_dir=sys.argv[1], cache_dir=sys.argv[2])";
-        let status = silent_command(&python).arg("-c").arg(script).arg(&model).arg(&cache).env("HF_HUB_DISABLE_TELEMETRY", "1").status()?;
-        if !status.success() { bail!("Falha ao baixar o modelo Qwen3-TTS 1.7B Base."); }
+        let mut child = silent_command(&python)
+            .arg("-c").arg(script).arg(&model).arg(&cache)
+            .env("HF_HUB_DISABLE_TELEMETRY", "1")
+            .stdout(Stdio::null()).stderr(Stdio::null())
+            .spawn().context("Não foi possível iniciar o download do modelo Qwen3-TTS Base")?;
+        let mut previous_bytes = directory_size(&model);
+        let mut previous_at = Instant::now();
+        loop {
+            if super::dependency_queue::cancel_requested() {
+                let _ = child.kill();
+                let _ = child.wait();
+                bail!("Operação cancelada pelo usuário.");
+            }
+            if let Some(status) = child.try_wait()? {
+                if !status.success() { bail!("Falha ao baixar o modelo Qwen3-TTS 1.7B Base (código {status})."); }
+                break;
+            }
+            thread::sleep(Duration::from_secs(1));
+            let now = Instant::now();
+            let downloaded = directory_size(&model);
+            let elapsed = now.duration_since(previous_at).as_secs_f64().max(0.001);
+            let speed = (downloaded.saturating_sub(previous_bytes) as f64 / elapsed) as u64;
+            super::dependency_queue::report_install_activity(
+                "Baixando o modelo oficial Qwen3-TTS 1.7B Base",
+                downloaded,
+                speed,
+            )?;
+            previous_bytes = downloaded;
+            previous_at = now;
+        }
     }
     if !model_config.is_file() || !(model_weights.is_file() || model_index.is_file()) {
         bail!("O download do Qwen3-TTS Base terminou sem todos os arquivos do modelo.");

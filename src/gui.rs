@@ -51,45 +51,70 @@ fn synchronize_application(app_id: String) -> Result<(), String> {
     dependency_queue::enqueue_application(&app_id, &app.installation_path).map_err(error_text)?;
     start_dependency_queue()
 }
-#[tauri::command]
-fn install_shared_resource(resource_id: String, app_id: Option<String>) -> Result<(), String> {
+fn write_install_status(
+    status: &str,
+    current: &str,
+    resource_id: &str,
+    app_id: Option<&str>,
+    results: serde_json::Value,
+) -> Result<(), String> {
+    let root = manager::root().map_err(error_text)?;
+    let registry = root.join("registry");
+    std::fs::create_dir_all(&registry).map_err(error_text)?;
+    let target = registry.join("dependency-queue-status.json");
+    let temporary = registry.join("dependency-queue-status.json.tmp");
+    let value = serde_json::json!({
+        "status": status,
+        "progress": serde_json::Value::Null,
+        "progressMode": "indeterminate",
+        "current": current,
+        "application": app_id,
+        "resourceId": resource_id,
+        "appId": app_id,
+        "completed": 0,
+        "total": 1,
+        "results": results
+    });
+    std::fs::write(&temporary, serde_json::to_vec_pretty(&value).map_err(error_text)?).map_err(error_text)?;
+    if target.exists() { std::fs::remove_file(&target).map_err(error_text)?; }
+    std::fs::rename(&temporary, &target).map_err(error_text)
+}
+
+fn spawn_install_shared_resource(resource_id: String, app_id: Option<String>) -> Result<(), String> {
     if QUEUE_RUNNING.swap(true, Ordering::SeqCst) {
         return Err("Já existe um processamento em andamento. Aguarde antes de iniciar outra instalação.".to_owned());
     }
+    dependency_queue::begin_operation();
+    if let Err(error) = write_install_status("installing", &format!("Preparando instalação de {resource_id}"), &resource_id, app_id.as_deref(), serde_json::json!([])) {
+        QUEUE_RUNNING.store(false, Ordering::SeqCst);
+        return Err(error);
+    }
     std::thread::spawn(move || {
-        let write_status = |status: &str, progress: u32, current: &str, results: serde_json::Value| -> Result<(), String> {
-            let root = manager::root().map_err(error_text)?;
-            let registry = root.join("registry");
-            std::fs::create_dir_all(&registry).map_err(error_text)?;
-            let target = registry.join("dependency-queue-status.json");
-            let temporary = registry.join("dependency-queue-status.json.tmp");
-            let value = serde_json::json!({
-                "status": status,
-                "progress": progress,
-                "current": current,
-                "application": app_id.clone(),
-                "completed": if progress == 100 { 1 } else { 0 },
-                "total": 1,
-                "results": results
-            });
-            std::fs::write(&temporary, serde_json::to_vec_pretty(&value).map_err(error_text)?).map_err(error_text)?;
-            if target.exists() { std::fs::remove_file(&target).map_err(error_text)?; }
-            std::fs::rename(&temporary, &target).map_err(error_text)
-        };
-        let _ = write_status("installing", 0, &format!("Preparando instalação de {resource_id}"), serde_json::json!([]));
         match manager::install(&resource_id, app_id.as_deref()) {
             Ok(()) => {
                 let result = serde_json::json!([{"id":resource_id.clone(),"status":"installed","message":"Recurso instalado e vínculos atualizados."}]);
-                let _ = write_status("completed", 100, &format!("Instalação de {resource_id} concluída"), result);
+                if write_install_status("completed", &format!("Instalação de {resource_id} concluída"), &resource_id, app_id.as_deref(), result).is_ok() {
+                    let _ = dependency_queue::record_history();
+                }
+            }
+            Err(_error) if dependency_queue::cancel_requested() => {
+                let _ = dependency_queue::mark_cancelled();
             }
             Err(error) => {
                 let result = serde_json::json!([{"id":resource_id.clone(),"status":"error","message":format!("{error:#}")}]);
-                let _ = write_status("error", 0, &format!("Falha ao instalar {resource_id}"), result);
+                if write_install_status("error", &format!("Falha ao instalar {resource_id}"), &resource_id, app_id.as_deref(), result).is_ok() {
+                    let _ = dependency_queue::record_history();
+                }
             }
         }
         QUEUE_RUNNING.store(false, Ordering::SeqCst);
     });
     Ok(())
+}
+
+#[tauri::command]
+fn install_shared_resource(resource_id: String, app_id: Option<String>) -> Result<(), String> {
+    spawn_install_shared_resource(resource_id, app_id)
 }
 #[tauri::command]
 fn delete_shared_dependency(dependency_id: String) -> Result<(), String> {
@@ -97,14 +122,41 @@ fn delete_shared_dependency(dependency_id: String) -> Result<(), String> {
 }
 #[tauri::command]
 fn start_dependency_queue() -> Result<(), String> {
-    if QUEUE_RUNNING.swap(true, Ordering::SeqCst) { return Ok(()); }
+    if QUEUE_RUNNING.swap(true, Ordering::SeqCst) {
+        return Err("A fila de dependências já está em execução.".to_owned());
+    }
+    dependency_queue::begin_operation();
     std::thread::spawn(|| {
         if let Err(error) = dependency_queue::process_queue() {
-            let _ = dependency_queue::set_failure(&format!("{error:#}"));
+            if dependency_queue::cancel_requested() {
+                let _ = dependency_queue::mark_cancelled();
+            } else {
+                let _ = dependency_queue::set_failure(&format!("{error:#}"));
+            }
         }
         QUEUE_RUNNING.store(false, Ordering::SeqCst);
     });
     Ok(())
+}
+#[tauri::command]
+fn cancel_processing() -> Result<(), String> {
+    if !QUEUE_RUNNING.load(Ordering::SeqCst) {
+        return Err("Não há processamento ativo para cancelar.".to_owned());
+    }
+    dependency_queue::request_cancel().map_err(error_text)
+}
+#[tauri::command]
+fn restart_processing() -> Result<(), String> {
+    if QUEUE_RUNNING.load(Ordering::SeqCst) {
+        return Err("A operação atual ainda está encerrando. Aguarde antes de reiniciar.".to_owned());
+    }
+    let status = dependency_queue::status().map_err(error_text)?;
+    if let Some(resource_id) = status.get("resourceId").and_then(serde_json::Value::as_str) {
+        let app_id = status.get("appId").and_then(serde_json::Value::as_str).map(str::to_owned);
+        spawn_install_shared_resource(resource_id.to_owned(), app_id)
+    } else {
+        start_dependency_queue()
+    }
 }
 #[tauri::command]
 fn dependency_queue_status() -> Result<serde_json::Value, String> {
@@ -150,7 +202,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             dashboard_data, register_application, delete_application, synchronize_application, delete_shared_dependency,
-            start_dependency_queue, dependency_queue_status, install_shared_resource,
+            start_dependency_queue, dependency_queue_status, install_shared_resource, cancel_processing, restart_processing,
             provider_catalog, available_api_models, save_api_provider, authorize_api,
             revoke_api, save_api_key, voice_library, create_voice_profile, set_default_voice, preview_voice
         ])

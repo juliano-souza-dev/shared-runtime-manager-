@@ -1,12 +1,38 @@
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
-use std::{collections::{BTreeMap, BTreeSet}, fs, path::{Path, PathBuf}, sync::Mutex};
+use std::{collections::{BTreeMap, BTreeSet}, fs, path::{Path, PathBuf}, sync::{atomic::{AtomicBool, Ordering}, Mutex}};
 
 static QUEUE_LOCK: Mutex<()> = Mutex::new(());
+static CANCEL_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+pub fn begin_operation() { CANCEL_REQUESTED.store(false, Ordering::SeqCst); }
+pub fn cancel_requested() -> bool { CANCEL_REQUESTED.load(Ordering::SeqCst) }
+pub fn request_cancel() -> Result<()> {
+    CANCEL_REQUESTED.store(true, Ordering::SeqCst);
+    let root = root()?;
+    let path = status_path(&root);
+    let mut status = read_json(&path)?;
+    status["status"] = json!("cancelling");
+    status["current"] = json!("Solicitando cancelamento da operação...");
+    write_json(&path, &status)
+}
+pub fn mark_cancelled() -> Result<()> {
+    let root = root()?;
+    let path = status_path(&root);
+    let mut status = read_json(&path)?;
+    status["status"] = json!("cancelled");
+    status["progress"] = Value::Null;
+    status["progressMode"] = json!("indeterminate");
+    status["current"] = json!("Operação cancelada pelo usuário");
+    status.as_object_mut().map(|object| { object.remove("downloadedBytes"); object.remove("speedBytesPerSecond"); });
+    write_json(&path, &status)?;
+    record_history()
+}
 
 fn root() -> Result<PathBuf> { super::manager::root() }
 fn queue_path(root: &Path) -> PathBuf { root.join("registry/dependency-queue.json") }
 fn status_path(root: &Path) -> PathBuf { root.join("registry/dependency-queue-status.json") }
+fn history_path(root: &Path) -> PathBuf { root.join("registry/processing-history.json") }
 fn resolved_path(root: &Path) -> PathBuf { root.join("registry/resolved-dependencies.json") }
 
 fn write_json(path: &Path, value: &Value) -> Result<()> {
@@ -133,8 +159,9 @@ pub fn process_queue() -> Result<()> {
     if !resolved.is_object() { resolved = json!({}); }
     let mut results = Vec::new();
     for (index, id) in unique.iter().enumerate() {
+        if cancel_requested() { bail!("Operação cancelada pelo usuário."); }
         write_json(&status_path(&root), &json!({
-            "status":"installing","progress":((index * 100) / total),
+            "status":"installing","progress":((index * 100) / total),"progressMode":"determinate",
             "current":format!("Instalando {id}"),"completed":index,"total":total,
             "results":results
         }))?;
@@ -150,18 +177,22 @@ pub fn process_queue() -> Result<()> {
                 results.push(json!({"id":id,"status":"error","message":format!("{error:#}")}));
             }
         }
+        if cancel_requested() { bail!("Operação cancelada pelo usuário."); }
         write_json(&status_path(&root), &json!({
-            "status":"installing","progress":(((index + 1) * 100) / total),
+            "status":"installing","progress":(((index + 1) * 100) / total),"progressMode":"determinate",
             "current":format!("Processado: {id}"),"completed":index+1,"total":total,
             "results":results
         }))?;
     }
     refresh_registered_configs(&root, &resolved)?;
-    write_json(&queue_path(&root), &json!({"items":[]}))?;
+    let failed = results.iter().any(|item| item.get("status").and_then(Value::as_str) == Some("error"));
+    if !failed { write_json(&queue_path(&root), &json!({"items":[]}))?; }
     write_json(&status_path(&root), &json!({
-        "status":"completed","progress":100,"current":"Processamento concluído",
+        "status":if failed { "error" } else { "completed" },"progress":if failed { 0 } else { 100 },"progressMode":"determinate",
+        "current":if failed { "Processamento concluído com falhas. Você pode reiniciar." } else { "Processamento concluído" },
         "completed":total,"total":total,"results":results
     }))?;
+    record_history()?;
     Ok(())
 }
 
@@ -240,7 +271,9 @@ pub fn install_dependency(resource_id: &str, app_id: Option<&str>) -> Result<()>
         }
     }
 
+    if cancel_requested() { anyhow::bail!("Operação cancelada pelo usuário."); }
     let installed_path = super::dependency_manager::ensure_dependency(&root, resource_id)?;
+    if cancel_requested() { anyhow::bail!("Operação cancelada pelo usuário."); }
     let resolved_file = resolved_path(&root);
     let mut resolved = read_json(&resolved_file)?;
     if !resolved.is_object() { resolved = json!({}); }
@@ -253,20 +286,60 @@ pub fn install_dependency(resource_id: &str, app_id: Option<&str>) -> Result<()>
 
 pub fn status() -> Result<Value> {
     let root = root()?;
-    read_json(&status_path(&root))
+    let mut current = read_json(&status_path(&root))?;
+    let path = history_path(&root);
+    current["history"] = if path.exists() { serde_json::from_slice(&fs::read(path)?)? } else { json!([]) };
+    Ok(current)
+}
+
+pub fn record_history() -> Result<()> {
+    let root = root()?;
+    let mut entry = read_json(&status_path(&root))?;
+    let state = entry.get("status").and_then(Value::as_str).unwrap_or("idle");
+    if !["completed", "error", "cancelled"].contains(&state) { return Ok(()); }
+    let path = history_path(&root);
+    let mut history: Value = if path.exists() { serde_json::from_slice(&fs::read(&path)?)? } else { json!([]) };
+    if !history.is_array() { history = json!([]); }
+    entry["finishedAt"] = json!(chrono_placeholder_timestamp());
+    if let Some(object) = entry.as_object_mut() {
+        object.remove("history");
+        object.remove("downloadedBytes");
+        object.remove("speedBytesPerSecond");
+    }
+    let items = history.as_array_mut().expect("history array initialized");
+    items.insert(0, entry);
+    items.truncate(20);
+    write_json(&path, &history)
 }
 
 /// Update the visible progress while a single shared resource is being provisioned.
-pub(crate) fn report_install_progress(progress: u32, current: &str) -> Result<()> {
+pub(crate) fn report_install_progress(_progress: u32, current: &str) -> Result<()> {
     let root = root()?;
-    write_json(&status_path(&root), &json!({
-        "status":"installing",
-        "progress":progress.min(99),
-        "current":current,
-        "completed":0,
-        "total":1,
-        "results":[]
-    }))
+    let path = status_path(&root);
+    let mut status = read_json(&path)?;
+    status["status"] = json!("installing");
+    status["progress"] = Value::Null;
+    status["progressMode"] = json!("indeterminate");
+    status["current"] = json!(current);
+    status["completed"] = json!(0);
+    status["total"] = json!(1);
+    status.as_object_mut().map(|object| { object.remove("downloadedBytes"); object.remove("speedBytesPerSecond"); });
+    write_json(&path, &status)
+}
+
+pub(crate) fn report_install_activity(current: &str, downloaded_bytes: u64, speed_bytes_per_second: u64) -> Result<()> {
+    let root = root()?;
+    let path = status_path(&root);
+    let mut status = read_json(&path)?;
+    status["status"] = json!("installing");
+    status["progress"] = Value::Null;
+    status["progressMode"] = json!("indeterminate");
+    status["current"] = json!(current);
+    status["downloadedBytes"] = json!(downloaded_bytes);
+    status["speedBytesPerSecond"] = json!(speed_bytes_per_second);
+    status["completed"] = json!(0);
+    status["total"] = json!(1);
+    write_json(&path, &status)
 }
 
 pub fn remove_application(app_id: &str) -> Result<()> {
@@ -283,9 +356,10 @@ pub fn remove_application(app_id: &str) -> Result<()> {
 pub fn set_failure(message: &str) -> Result<()> {
     let root = root()?;
     write_json(&status_path(&root), &json!({
-        "status":"error","progress":0,"current":"Falha no processamento da fila",
+        "status":"error","progress":0,"progressMode":"indeterminate","current":"Falha no processamento da fila",
         "error":message,"results":[]
-    }))
+    }))?;
+    record_history()
 }
 
 #[cfg(test)]

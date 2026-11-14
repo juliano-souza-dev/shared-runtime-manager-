@@ -21,3 +21,11 @@
 .voice-actions{display:flex;gap:8px;margin-top:10px}
 .voice-preview audio{width:100%;height:36px}
 @media(max-width:1050px){.voice-layout{grid-template-columns:1fr}}
+
+.processing-badge.cancelled{border-color:#a17a45;color:#f0c58b;background:#a17a451a}
+.progress-indeterminate-label{font-size:11px!important;color:#aebaff!important;font-weight:600}
+.processing-download{display:flex;justify-content:space-between;gap:14px;margin-top:13px;color:var(--muted);font-size:10px}
+.processing-download strong{color:#dce5f5;font-variant-numeric:tabular-nums}
+.processing-actions{display:flex;justify-content:flex-end;margin-top:17px}
+.processing-actions button{min-width:145px}
+.processing-actions button:disabled{opacity:.55;cursor:wait}
