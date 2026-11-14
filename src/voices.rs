@@ -86,7 +86,6 @@ fn executable(root: &Path, name: &str) -> Result<PathBuf> {
 }
 
 fn runtime_info(root: &Path) -> Result<(PathBuf, PathBuf, PathBuf)> {
-    super::dependency_queue::report_install_progress(5, "Preparando o runtime Qwen3-TTS Base para clonagem")?;
     let runtime = root.join("runtimes/qwen3-tts-clone");
     let manifest_path = runtime.join("runtime.json");
     if !manifest_path.is_file() {
@@ -226,6 +225,7 @@ pub(crate) fn config_for_consumers(root: &Path) -> Result<Value> {
 }
 
 pub(crate) fn ensure_runtime(root: &Path) -> Result<PathBuf> {
+    super::dependency_queue::report_install_progress(5, "Preparando o runtime Qwen3-TTS Base para clonagem")?;
     let runtime = root.join("runtimes/qwen3-tts-clone");
     let model = root.join("models/qwen3-tts-clone/1.7B-Base");
     let cache = root.join("cache/huggingface");
