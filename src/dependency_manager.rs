@@ -315,7 +315,7 @@ fn python_script_succeeds(python: &Path, script: &str) -> bool {
 /// Provisions WhisperX in a Shared-owned virtual environment. The application's
 /// own Python installation and site-packages are never modified.
 const QWEN3_TTS_MODEL_ID: &str = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice";
-const PIPER_DEFAULT_VOICE: &str = "en_US-lessac-medium";
+const PIPER_DEFAULT_VOICE: &str = "en_US-mike-medium";
 
 fn run_venv_command(python: &Path, args: &[&str], description: &str) -> Result<()> {
     let output = silent_command(python)
