@@ -41,6 +41,7 @@ function closePreviousGui() {
 
 async function main() {
   console.log("Shared Runtime Manager · atualização e compilação");
+  run("git", ["switch", "main"], "Selecionando a branch main");
   run("git", ["pull", "--ff-only", "origin", "main"], "Atualizando o código pela branch main");
 
   const cargo = findCargo();
