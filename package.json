@@ -1,0 +1,9 @@
+{
+  "name": "shared-runtime-manager",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Build and launch scripts for the Shared Runtime Manager desktop application",
+  "scripts": {
+    "compilar": "node scripts/compilar.mjs"
+  }
+}
