@@ -111,6 +111,22 @@ fn dependency_queue_status() -> Result<serde_json::Value, String> {
     dependency_queue::status().map_err(error_text)
 }
 #[tauri::command]
+fn voice_library() -> Result<serde_json::Value, String> {
+    shared_runtime_manager::voices::list().map_err(error_text)
+}
+#[tauri::command]
+fn create_voice_profile(name: String, filename: String, audio_base64: String, reference_text: String) -> Result<serde_json::Value, String> {
+    shared_runtime_manager::voices::create_profile(&name, &filename, &audio_base64, &reference_text).map_err(error_text)
+}
+#[tauri::command]
+fn set_default_voice(voice_id: String) -> Result<(), String> {
+    shared_runtime_manager::voices::set_default(&voice_id).map_err(error_text)
+}
+#[tauri::command]
+fn preview_voice(voice_id: String, text: String) -> Result<String, String> {
+    shared_runtime_manager::voices::preview(&voice_id, &text).map_err(error_text)
+}
+#[tauri::command]
 fn provider_catalog() -> Result<serde_json::Value, String> { api::provider_catalog().map_err(error_text) }
 #[tauri::command]
 fn available_api_models(provider: String) -> Result<Vec<String>, String> { api::available_models(&provider).map_err(error_text) }
@@ -136,7 +152,7 @@ fn main() {
             dashboard_data, register_application, delete_application, synchronize_application, delete_shared_dependency,
             start_dependency_queue, dependency_queue_status, install_shared_resource,
             provider_catalog, available_api_models, save_api_provider, authorize_api,
-            revoke_api, save_api_key
+            revoke_api, save_api_key, voice_library, create_voice_profile, set_default_voice, preview_voice
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Shared Runtime Manager");
