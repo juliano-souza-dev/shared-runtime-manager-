@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     fs,
+    ffi::OsStr,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     io::Write,
@@ -11,6 +12,17 @@ use std::{
 };
 
 const MODEL_ID: &str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base";
+
+fn silent_command<S: AsRef<OsStr>>(program: S) -> Command {
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    command
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct VoiceProfile {
@@ -74,9 +86,9 @@ fn executable(root: &Path, name: &str) -> Result<PathBuf> {
     find_file(&root.join("tools"), &filename)
         .or_else(|| {
             let output = if cfg!(windows) {
-                Command::new("where").arg(&filename).output().ok()?
+                silent_command("where").arg(&filename).output().ok()?
             } else {
-                Command::new("which").arg(&filename).output().ok()?
+                silent_command("which").arg(&filename).output().ok()?
             };
             if !output.status.success() { return None; }
             let found = String::from_utf8_lossy(&output.stdout).lines().next()?.trim().to_owned();
@@ -99,7 +111,7 @@ fn runtime_info(root: &Path) -> Result<(PathBuf, PathBuf, PathBuf)> {
 }
 
 fn run_worker(python: &Path, runner: &Path, model: &Path, profile: &Path, request: Value) -> Result<Value> {
-    let mut child = Command::new(python)
+    let mut child = silent_command(python)
         .arg(runner).arg(model).arg(profile)
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().context("Não foi possível iniciar o executor Qwen3-TTS Base")?;
@@ -146,7 +158,7 @@ pub fn create_profile(name: &str, filename: &str, audio_base64: &str, reference_
     fs::create_dir_all(&profile)?;
     let source = profile.join(format!("reference.{extension}"));
     fs::write(&source, bytes)?;
-    let duration_output = Command::new(&ffprobe).args([
+    let duration_output = silent_command(&ffprobe).args([
         "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
     ]).arg(&source).output().context("Não foi possível analisar a duração do áudio")?;
     if !duration_output.status.success() { bail!("O arquivo enviado não contém um áudio válido."); }
@@ -157,7 +169,7 @@ pub fn create_profile(name: &str, filename: &str, audio_base64: &str, reference_
         bail!("O áudio precisa ter entre 10 e 200 segundos. Duração detectada: {:.1}s.", duration);
     }
     let normalized = profile.join("reference.wav");
-    let normalize = Command::new(&ffmpeg).args(["-y", "-i"]).arg(&source)
+    let normalize = silent_command(&ffmpeg).args(["-y", "-i"]).arg(&source)
         .args(["-vn", "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le"])
         .arg(&normalized).output().context("Não foi possível preparar o áudio de referência")?;
     if !normalize.status.success() {
@@ -238,29 +250,29 @@ pub(crate) fn ensure_runtime(root: &Path) -> Result<PathBuf> {
     let python = if cfg!(windows) { venv.join("Scripts/python.exe") } else { venv.join("bin/python") };
     if !python.is_file() {
         let base = if cfg!(windows) { "py" } else { "python3" };
-        let mut command = Command::new(base);
+        let mut command = silent_command(base);
         if cfg!(windows) { command.arg("-3"); }
         let status = command.args(["-m", "venv"]).arg(&venv).status()?;
         if !status.success() { bail!("Não foi possível criar o ambiente Python do Qwen3-TTS Base."); }
     }
     let cpu_check = "import torch; assert torch.version.cuda is None and not torch.cuda.is_available()";
-    let check = Command::new(&python).args(["-c", cpu_check]).status().map(|s| s.success()).unwrap_or(false);
+    let check = silent_command(&python).args(["-c", cpu_check]).status().map(|s| s.success()).unwrap_or(false);
     if !check {
-        let status = Command::new(&python).args(["-m", "pip", "install", "--upgrade", "pip"]).status()?;
+        let status = silent_command(&python).args(["-m", "pip", "install", "--upgrade", "pip"]).status()?;
         if !status.success() { bail!("Falha ao preparar pip para Qwen3-TTS Base."); }
-        let status = Command::new(&python).args(["-m", "pip", "install", "--force-reinstall", "torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"]).status()?;
+        let status = silent_command(&python).args(["-m", "pip", "install", "--force-reinstall", "torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"]).status()?;
         if !status.success() { bail!("Falha ao instalar PyTorch CPU para Qwen3-TTS Base."); }
     }
-    let package_check = Command::new(&python).args(["-c", "import qwen_tts, soundfile"]).status().map(|s| s.success()).unwrap_or(false);
+    let package_check = silent_command(&python).args(["-c", "import qwen_tts, soundfile"]).status().map(|s| s.success()).unwrap_or(false);
     if !package_check {
         super::dependency_queue::report_install_progress(42, "Instalando Qwen3-TTS Base e dependências de áudio")?;
-        let status = Command::new(&python).args(["-m", "pip", "install", "qwen-tts", "soundfile"]).status()?;
+        let status = silent_command(&python).args(["-m", "pip", "install", "qwen-tts", "soundfile"]).status()?;
         if !status.success() { bail!("Falha ao instalar qwen-tts e soundfile."); }
     }
-    let cpu_still_valid = Command::new(&python).args(["-c", cpu_check]).status().map(|s| s.success()).unwrap_or(false);
+    let cpu_still_valid = silent_command(&python).args(["-c", cpu_check]).status().map(|s| s.success()).unwrap_or(false);
     if !cpu_still_valid {
         super::dependency_queue::report_install_progress(58, "Restaurando PyTorch CPU após instalar o Qwen3-TTS")?;
-        let status = Command::new(&python).args(["-m", "pip", "install", "--force-reinstall", "torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"]).status()?;
+        let status = silent_command(&python).args(["-m", "pip", "install", "--force-reinstall", "torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"]).status()?;
         if !status.success() { bail!("Falha ao restaurar PyTorch CPU."); }
     }
     let model_config = model.join("config.json");
@@ -269,8 +281,11 @@ pub(crate) fn ensure_runtime(root: &Path) -> Result<PathBuf> {
     if !model_config.is_file() || !(model_weights.is_file() || model_index.is_file()) {
         super::dependency_queue::report_install_progress(68, "Baixando o modelo oficial Qwen3-TTS 1.7B Base")?;
         let script = "import sys; from huggingface_hub import snapshot_download; snapshot_download(repo_id='Qwen/Qwen3-TTS-12Hz-1.7B-Base', local_dir=sys.argv[1], cache_dir=sys.argv[2])";
-        let status = Command::new(&python).arg("-c").arg(script).arg(&model).arg(&cache).env("HF_HUB_DISABLE_TELEMETRY", "1").status()?;
+        let status = silent_command(&python).arg("-c").arg(script).arg(&model).arg(&cache).env("HF_HUB_DISABLE_TELEMETRY", "1").status()?;
         if !status.success() { bail!("Falha ao baixar o modelo Qwen3-TTS 1.7B Base."); }
+    }
+    if !model_config.is_file() || !(model_weights.is_file() || model_index.is_file()) {
+        bail!("O download do Qwen3-TTS Base terminou sem todos os arquivos do modelo.");
     }
     super::dependency_queue::report_install_progress(94, "Preparando o executor de clonagem de voz")?;
     let runner = runtime.join("voice_runner.py");
