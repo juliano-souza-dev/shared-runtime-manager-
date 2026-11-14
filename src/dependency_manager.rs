@@ -374,7 +374,7 @@ fn ensure_piper_tts(root: &Path) -> Result<PathBuf> {
         )?;
         run_venv_command(
             &interpreter,
-            &["-m", "pip", "install", "piper-tts"],
+            &["-m", "pip", "install", "piper-tts>=1.5"],
             "Piper TTS installation",
         )?;
     }
