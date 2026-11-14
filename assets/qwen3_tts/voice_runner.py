@@ -1,4 +1,5 @@
 """One-shot Qwen3-TTS Base worker for preparing and using reusable voice profiles."""
+import contextlib
 import json
 import os
 import sys
@@ -18,17 +19,19 @@ def main() -> int:
     try:
         request = json.loads(sys.stdin.readline())
         torch.set_num_threads(max(1, min(os.cpu_count() or 4, 8)))
-        model = Qwen3TTSModel.from_pretrained(
-            str(model_path), device_map={"": "cpu"}, dtype=torch.float32,
-            attn_implementation="sdpa",
-        )
+        with contextlib.redirect_stdout(sys.stderr):
+            model = Qwen3TTSModel.from_pretrained(
+                str(model_path), device_map={"": "cpu"}, dtype=torch.float32,
+                attn_implementation="sdpa",
+            )
         operation = request.get("operation")
         if operation == "prepare_voice":
-            items = model.create_voice_clone_prompt(
-                ref_audio=str(Path(request["reference_audio"]).resolve()),
-                ref_text=str(request["reference_text"]),
-                x_vector_only_mode=False,
-            )
+            with contextlib.redirect_stdout(sys.stderr):
+                items = model.create_voice_clone_prompt(
+                    ref_audio=str(Path(request["reference_audio"]).resolve()),
+                    ref_text=str(request["reference_text"]),
+                    x_vector_only_mode=False,
+                )
             prompt = [{
                 "ref_code": item.ref_code,
                 "ref_spk_embedding": item.ref_spk_embedding,
@@ -40,10 +43,11 @@ def main() -> int:
         elif operation == "synthesize":
             prompt_path = profile_path / "voice_clone_prompt.pt"
             prompt = torch.load(prompt_path, map_location="cpu", weights_only=False)
-            wavs, sample_rate = model.generate_voice_clone(
-                text=str(request["text"]), language=str(request.get("language", "Portuguese")),
-                voice_clone_prompt=prompt,
-            )
+            with contextlib.redirect_stdout(sys.stderr):
+                wavs, sample_rate = model.generate_voice_clone(
+                    text=str(request["text"]), language=str(request.get("language", "Portuguese")),
+                    voice_clone_prompt=prompt,
+                )
             output = Path(request["output_path"]).resolve()
             output.parent.mkdir(parents=True, exist_ok=True)
             sf.write(str(output), wavs[0], sample_rate)
