@@ -219,6 +219,9 @@ fn create_voice_profile(name: String, filename: String, audio_base64: String, re
                     let _ = dependency_queue::record_history();
                 }
             }
+            Err(_error) if dependency_queue::cancel_requested() => {
+                let _ = dependency_queue::mark_cancelled();
+            }
             Err(error) => {
                 let detail = format!("{error:#}");
                 let result = serde_json::json!({
