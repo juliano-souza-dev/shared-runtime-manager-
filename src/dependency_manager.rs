@@ -303,6 +303,15 @@ fn python_module_exists(python: &Path, module: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn python_script_succeeds(python: &Path, script: &str) -> bool {
+    silent_command(python)
+        .arg("-c")
+        .arg(script)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
 /// Provisions WhisperX in a Shared-owned virtual environment. The application's
 /// own Python installation and site-packages are never modified.
 const QWEN3_TTS_MODEL_ID: &str = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice";
@@ -323,7 +332,7 @@ fn run_venv_command(python: &Path, args: &[&str], description: &str) -> Result<(
     Ok(())
 }
 
-fn ensure_shared_venv(root: &Path, runtime: &Path) -> Result<PathBuf> {
+fn ensure_shared_venv(runtime: &Path) -> Result<PathBuf> {
     let venv = runtime.join("venv");
     let interpreter = venv_python(&venv);
     if !interpreter.is_file() {
@@ -338,7 +347,6 @@ fn ensure_shared_venv(root: &Path, runtime: &Path) -> Result<PathBuf> {
     if !interpreter.is_file() {
         bail!("The isolated Shared Python environment was not created: {}", interpreter.display());
     }
-    let _ = root;
     Ok(interpreter)
 }
 
@@ -356,7 +364,7 @@ fn ensure_piper_tts(root: &Path) -> Result<PathBuf> {
     fs::create_dir_all(&voices)?;
     super::dependency_queue::report_install_progress(5, "Preparando o ambiente isolado do Piper TTS")?;
 
-    let interpreter = ensure_shared_venv(root, &runtime)?;
+    let interpreter = ensure_shared_venv(&runtime)?;
     if !python_module_exists(&interpreter, "piper") {
         super::dependency_queue::report_install_progress(25, "Instalando Piper TTS e o mecanismo ONNX para CPU")?;
         run_venv_command(
@@ -392,7 +400,7 @@ fn ensure_piper_tts(root: &Path) -> Result<PathBuf> {
     if !python_module_exists(&interpreter, "onnxruntime") || !(model.is_file() && model_config.is_file()) {
         bail!("Piper TTS did not pass validation. Check the isolated Python environment and voice files.");
     }
-    let providers_script = "import onnxruntime as ort; assert 'CPUExecutionProvider' in ort.get_available_providers()";
+    let providers_script = "import onnxruntime as ort; providers = ort.get_available_providers(); assert 'CPUExecutionProvider' in providers; assert 'CUDAExecutionProvider' not in providers";
     run_venv_command(&interpreter, &["-c", providers_script], "Piper CPU provider validation")?;
 
     write_runtime_manifest(&runtime, &json!({
@@ -421,7 +429,8 @@ fn ensure_qwen3_tts(root: &Path) -> Result<PathBuf> {
     super::dependency_queue::report_install_progress(5, "Preparando o ambiente isolado do Qwen3-TTS 0.6B")?;
 
     let interpreter = ensure_shared_venv(root, &runtime)?;
-    if !python_module_exists(&interpreter, "torch") {
+    let cpu_torch_check = "import torch; assert torch.version.cuda is None; assert torch.cuda.is_available() is False";
+    if !python_script_succeeds(&interpreter, cpu_torch_check) {
         super::dependency_queue::report_install_progress(20, "Instalando PyTorch exclusivamente para CPU, sem CUDA")?;
         run_venv_command(
             &interpreter,
@@ -431,7 +440,7 @@ fn ensure_qwen3_tts(root: &Path) -> Result<PathBuf> {
         run_venv_command(
             &interpreter,
             &[
-                "-m", "pip", "install", "torch", "torchaudio",
+                "-m", "pip", "install", "--force-reinstall", "torch", "torchaudio",
                 "--index-url", "https://download.pytorch.org/whl/cpu",
             ],
             "PyTorch CPU installation",
@@ -694,7 +703,16 @@ mod tests {
     }
 
     #[test]
-    fn piper_and_qwen3_tts_are_optional_by_default() {        let dependencies = default_contract()["dependencies"].as_array().unwrap().clone();        for id in ["piper-tts", "qwen3-tts"] {            let dependency = dependencies.iter().find(|item| item["id"] == id).unwrap();            assert_eq!(dependency["required"], false);        }    }    #[test]    fn forced_alignment_is_optional_by_default() {
+    fn piper_and_qwen3_tts_are_optional_by_default() {
+        let dependencies = default_contract()["dependencies"].as_array().unwrap().clone();
+        for id in ["piper-tts", "qwen3-tts"] {
+            let dependency = dependencies.iter().find(|item| item["id"] == id).unwrap();
+            assert_eq!(dependency["required"], false);
+        }
+    }
+
+    #[test]
+    fn forced_alignment_is_optional_by_default() {
         let dependencies = default_contract()["dependencies"].as_array().unwrap().clone();
         let alignment = dependencies.iter().find(|item| item["id"] == "forced-alignment").unwrap();
         assert_eq!(alignment["required"], false);
