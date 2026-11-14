@@ -164,8 +164,14 @@ The resource is opt-in at the application-contract level. Applications declaring
 Two optional CPU-first speech resources are available for applications that declare them in their own `shared.dependencies` list:
 
 ```json
-{ "id": "piper-tts", "required": false }
-{ "id": "qwen3-tts", "required": false }
+{
+  "shared": {
+    "dependencies": [
+      { "id": "piper-tts", "required": false },
+      { "id": "qwen3-tts", "required": false }
+    ]
+  }
+}
 ```
 
 Install only when an application requests them:
