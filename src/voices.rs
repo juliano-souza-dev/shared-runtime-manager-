@@ -264,7 +264,9 @@ pub(crate) fn ensure_runtime(root: &Path) -> Result<PathBuf> {
         if !status.success() { bail!("Falha ao restaurar PyTorch CPU."); }
     }
     let model_config = model.join("config.json");
-    if !model_config.is_file() {
+    let model_weights = model.join("model.safetensors");
+    let model_index = model.join("model.safetensors.index.json");
+    if !model_config.is_file() || !(model_weights.is_file() || model_index.is_file()) {
         super::dependency_queue::report_install_progress(68, "Baixando o modelo oficial Qwen3-TTS 1.7B Base")?;
         let script = "import sys; from huggingface_hub import snapshot_download; snapshot_download(repo_id='Qwen/Qwen3-TTS-12Hz-1.7B-Base', local_dir=sys.argv[1], cache_dir=sys.argv[2])";
         let status = Command::new(&python).arg("-c").arg(script).arg(&model).arg(&cache).env("HF_HUB_DISABLE_TELEMETRY", "1").status()?;
