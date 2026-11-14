@@ -2,3 +2,22 @@
 .registration-progress{margin-top:18px;padding:13px;border:1px solid #35415a;border-radius:9px;background:#101725}.progress-top{display:flex;justify-content:space-between;gap:12px;font-size:10px;margin-bottom:9px}.progress-top span{color:#aebaff;font-variant-numeric:tabular-nums}.progress-track{height:7px;border-radius:20px;background:#273146;overflow:hidden}.progress-track div{height:100%;width:0;background:linear-gradient(90deg,#7186ed,#aab5ff);border-radius:20px;transition:width .25s ease}.registration-progress>small{display:block;margin-top:8px}.queue-results{margin-bottom:14px}.queue-results>strong{font-size:12px}.queue-result{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}.queue-result:last-child{border-bottom:0}.queue-result>div{flex:1}.queue-result strong{display:block;font-size:11px}.queue-result small{display:block;color:var(--muted);font-size:10px;margin-top:3px}.queue-result>b{font-size:9px;color:#9fe2c6}.queue-result .failed~div small,.queue-result .failed~b{color:#f2a5ac}.queue-dot{width:8px;height:8px;border-radius:50%;background:#70d6b0}.queue-dot.failed{background:#e27e88}.queue-result>b{color:#9fe2c6}.queue-result:has(.failed)>b{color:#f2a5ac}
 
 .nav-count{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;margin-left:auto;padding:0 5px;border-radius:20px;background:#6479e8;color:white;font-size:9px;font-weight:700}.processing-badge{display:inline-flex;align-items:center;padding:7px 11px;border:1px solid var(--line);border-radius:20px;font-size:10px;color:var(--muted)}.processing-badge.running{border-color:#6479e8;color:#b6c2ff;background:#6479e81a}.processing-badge.completed{border-color:#3b876c;color:#9fe2c6;background:#3b876c1a}.processing-badge.failed{border-color:#a4515c;color:#f2a5ac;background:#a4515c1a}.processing-current{margin:16px 0}.processing-card{padding:20px;border:1px solid #35415a;border-radius:12px;background:#141d2b}.processing-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.processing-card-top small{font-size:9px;letter-spacing:1.2px;color:#8290a8}.processing-card-top h3{margin:8px 0 5px;font-size:17px}.processing-card-top p{margin:0;color:var(--muted);font-size:11px}.processing-card-top>strong{font-size:25px;color:#b6c2ff;font-variant-numeric:tabular-nums}.processing-track{height:9px;margin-top:20px;border-radius:20px;background:#273146;overflow:hidden}.processing-track i{display:block;height:100%;border-radius:20px;background:linear-gradient(90deg,#7186ed,#aab5ff);transition:width .3s ease}.processing-track i.indeterminate{width:32%!important;animation:processing-slide 1.2s ease-in-out infinite alternate}.processing-meta{display:flex;justify-content:space-between;gap:10px;margin-top:10px;color:var(--muted);font-size:10px;text-transform:capitalize}@keyframes processing-slide{from{transform:translateX(0)}to{transform:translateX(210%)}}@media(max-width:760px){.processing-card-top h3{font-size:14px}.processing-badge{font-size:9px}}
+
+
+.voice-layout{display:grid;grid-template-columns:minmax(300px,.85fr) minmax(360px,1.15fr);gap:18px;align-items:start}
+.voice-create form{display:grid;gap:13px;padding:0 20px 20px}
+.voice-create label{display:grid;gap:7px;color:var(--text);font-size:13px;font-weight:600}
+.voice-create input,.voice-create textarea{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--text);padding:11px;font:inherit}
+.voice-create input[type=file]{font-size:12px}
+.voice-create textarea{resize:vertical;min-height:95px}
+.voice-create small{color:var(--muted);font-size:11px;line-height:1.5}
+.voice-item{padding:16px 0;border-bottom:1px solid var(--line)}
+.voice-item:last-child{border-bottom:0}
+.voice-item-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.voice-item-head>div{display:grid;gap:4px;min-width:0}
+.voice-item-head strong{font-size:14px}
+.voice-item-head small{color:var(--muted);font-size:11px}
+.voice-item .meta{margin:10px 0;overflow-wrap:anywhere}
+.voice-actions{display:flex;gap:8px;margin-top:10px}
+.voice-preview audio{width:100%;height:36px}
+@media(max-width:1050px){.voice-layout{grid-template-columns:1fr}}
