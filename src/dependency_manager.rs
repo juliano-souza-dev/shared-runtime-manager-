@@ -615,6 +615,7 @@ pub(crate) fn ensure_dependency(root: &Path, id: &str) -> Result<PathBuf> {
         "forced-alignment" => ensure_forced_alignment(root),
         "piper-tts" => ensure_piper_tts(root),
         "qwen3-tts" => ensure_qwen3_tts(root),
+        "qwen3-tts-base-clone" => super::voices::ensure_runtime(root),
         other => bail!("Unknown dependency '{other}'. No installer is registered in the Shared catalog."),
     }
 }
