@@ -549,6 +549,12 @@ pub fn delete_resource(resource_id: &str) -> Result<()> {
                 if model_cache.is_dir() { fs::remove_dir_all(model_cache)?; }
             }
         }
+        "piper-tts" | "qwen3-tts" => {
+            if canonical_candidate.is_dir() { fs::remove_dir_all(&canonical_candidate)?; }
+            else { fs::remove_file(&canonical_candidate)?; }
+            let model_cache = canonical_root.join("models").join(resource_id);
+            if model_cache.is_dir() { fs::remove_dir_all(model_cache)?; }
+        }
         _ => {
             bail!("Dependency '{resource_id}' is not stored as a safely removable resource inside Shared. Its installation is managed externally.");
         }
@@ -584,8 +590,8 @@ pub fn install(resource: &str, app_id: Option<&str>) -> Result<()> {
     match resource {
         "ffmpeg" => install_ffmpeg(app_id),
         "sox" => install_sox(app_id),
-        "forced-alignment" => super::dependency_queue::install_dependency(resource, app_id),
-        other => bail!("Unknown resource '{other}'. Available resources: ffmpeg, sox, forced-alignment."),
+        "forced-alignment" | "piper-tts" | "qwen3-tts" => super::dependency_queue::install_dependency(resource, app_id),
+        other => bail!("Unknown resource '{other}'. Available resources: ffmpeg, sox, forced-alignment, piper-tts, qwen3-tts."),
     }
 }
 
