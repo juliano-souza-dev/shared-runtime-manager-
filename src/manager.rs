@@ -85,7 +85,7 @@ pub fn root() -> Result<PathBuf> {
 
 fn ensure_layout() -> Result<PathBuf> {
     let base = root()?;
-    for directory in ["registry", "cache", "tools", "runtimes", "models", "media-shared"] {
+    for directory in ["registry", "cache", "tools", "runtimes", "models", "media-shared", "voices"] {
         fs::create_dir_all(base.join(directory))?;
     }
     Ok(base)
@@ -321,11 +321,13 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
         "models": shared_root.join("models").display().to_string(),
         "cache": shared_root.join("cache").display().to_string(),
         "registry": shared_root.join("registry").display().to_string(),
-        "mediaShared": shared_root.join("media-shared").display().to_string()
+        "mediaShared": shared_root.join("media-shared").display().to_string(),
+        "voices": shared_root.join("voices").display().to_string()
     });
     shared["files"] = serde_json::json!({
         "applications": shared_root.join(REGISTRY_FILE).display().to_string(),
-        "apiProviders": shared_root.join("registry/apis.json").display().to_string()
+        "apiProviders": shared_root.join("registry/apis.json").display().to_string(),
+        "voicesRegistry": shared_root.join("registry/voices.json").display().to_string()
     });
     shared["resources"] = serde_json::to_value(&installed_resources)?;
     shared["resolvedDependencies"] = serde_json::to_value(installed_resources)?;
