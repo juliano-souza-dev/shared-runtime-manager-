@@ -146,6 +146,16 @@ fn runtime_info(root: &Path) -> Result<(PathBuf, PathBuf, PathBuf)> {
     Ok((python, runner, model))
 }
 
+fn diagnostic_excerpt(value: &str, limit: usize) -> String {
+    let trimmed = value.trim();
+    let mut chars = trimmed.chars();
+    let mut excerpt: String = chars.by_ref().take(limit).collect();
+    if chars.next().is_some() {
+        excerpt.push_str("\n... [saída truncada]");
+    }
+    excerpt
+}
+
 fn run_worker(python: &Path, runner: &Path, model: &Path, profile: &Path, request: Value) -> Result<Value> {
     let mut child = silent_command(python)
         .arg(runner).arg(model).arg(profile)
@@ -154,10 +164,39 @@ fn run_worker(python: &Path, runner: &Path, model: &Path, profile: &Path, reques
     child.stdin.take().ok_or_else(|| anyhow!("Entrada do executor indisponível"))?
         .write_all(format!("{}\n", serde_json::to_string(&request)?).as_bytes())?;
     let output = child.wait_with_output()?;
-    let response: Value = serde_json::from_slice(&output.stdout)
-        .with_context(|| format!("O executor de voz retornou uma resposta inválida: {}", String::from_utf8_lossy(&output.stderr).trim()))?;
-    if !output.status.success() {
-        bail!("{}", response.get("error").and_then(Value::as_str).unwrap_or("Falha no executor de voz."));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let response: Value = serde_json::from_str(stdout.trim()).with_context(|| {
+        let stdout_detail = diagnostic_excerpt(&stdout, 6000);
+        let stderr_detail = diagnostic_excerpt(&stderr, 6000);
+        format!(
+            "O executor Qwen3-TTS Base não retornou JSON válido. Código de saída: {}.\nstdout: {}\nstderr: {}",
+            output.status,
+            if stdout_detail.is_empty() { "<vazio>" } else { &stdout_detail },
+            if stderr_detail.is_empty() { "<vazio>" } else { &stderr_detail },
+        )
+    })?;
+
+    let response_status = response.get("status").and_then(Value::as_str).unwrap_or("desconhecido");
+    if !output.status.success() || response_status != "completed" {
+        let stage = response.get("stage").and_then(Value::as_str).unwrap_or("não informada");
+        let operation = response.get("operation").and_then(Value::as_str).unwrap_or("não informada");
+        let error_type = response.get("error_type").and_then(Value::as_str).unwrap_or("não informado");
+        let error = response.get("error").and_then(Value::as_str).unwrap_or("O worker não informou a causa.");
+        let traceback = response.get("traceback").and_then(Value::as_str).unwrap_or("");
+        let mut detail = format!(
+            "Falha no executor Qwen3-TTS Base. Etapa: {stage}. Operação: {operation}. Tipo: {error_type}. Código de saída: {}.\nCausa: {error}",
+            output.status
+        );
+        if !traceback.trim().is_empty() {
+            detail.push_str("\n\nRastreamento Python:\n");
+            detail.push_str(&diagnostic_excerpt(traceback, 10000));
+        }
+        if !stderr.trim().is_empty() {
+            detail.push_str("\n\nDiagnóstico (stderr):\n");
+            detail.push_str(&diagnostic_excerpt(&stderr, 6000));
+        }
+        bail!("{detail}");
     }
     Ok(response)
 }
