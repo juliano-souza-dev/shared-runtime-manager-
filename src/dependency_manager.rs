@@ -456,6 +456,19 @@ fn ensure_qwen3_tts(root: &Path) -> Result<PathBuf> {
         )?;
     }
 
+    // Re-check after package installation because pip may have changed the Torch build.
+    if !python_script_succeeds(&interpreter, cpu_torch_check) {
+        super::dependency_queue::report_install_progress(60, "Restaurando PyTorch CPU após resolver as dependências do Qwen3-TTS")?;
+        run_venv_command(
+            &interpreter,
+            &[
+                "-m", "pip", "install", "--force-reinstall", "torch", "torchaudio",
+                "--index-url", "https://download.pytorch.org/whl/cpu",
+            ],
+            "PyTorch CPU-only restoration",
+        )?;
+    }
+
     // Re-check after installing qwen-tts in case its dependency resolver changed PyTorch.
     if !python_script_succeeds(&interpreter, cpu_torch_check) {
         super::dependency_queue::report_install_progress(60, "Restaurando a distribuição CPU do PyTorch")?;
