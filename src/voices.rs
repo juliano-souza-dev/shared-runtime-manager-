@@ -156,6 +156,21 @@ fn diagnostic_excerpt(value: &str, limit: usize) -> String {
     excerpt
 }
 
+fn parse_worker_response(stdout: &str) -> Result<(Value, String)> {
+    // Python libraries may print warnings to stdout before the worker's JSON.
+    for (offset, character) in stdout.char_indices() {
+        if character != '{' {
+            continue;
+        }
+        if let Ok(value) = serde_json::from_str::<Value>(&stdout[offset..]) {
+            if value.is_object() {
+                return Ok((value, stdout[..offset].trim().to_owned()));
+            }
+        }
+    }
+    bail!("Nenhum objeto JSON válido foi encontrado na saída do executor.")
+}
+
 fn run_worker(python: &Path, runner: &Path, model: &Path, profile: &Path, request: Value) -> Result<Value> {
     let mut child = silent_command(python)
         .arg(runner).arg(model).arg(profile)
@@ -193,16 +208,20 @@ fn run_worker(python: &Path, runner: &Path, model: &Path, profile: &Path, reques
     };
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let response: Value = serde_json::from_str(stdout.trim()).with_context(|| {
+    let (response, stdout_warning) = parse_worker_response(&stdout).with_context(|| {
         let stdout_detail = diagnostic_excerpt(&stdout, 6000);
         let stderr_detail = diagnostic_excerpt(&stderr, 6000);
         format!(
-            "O executor Qwen3-TTS Base não retornou JSON válido. Código de saída: {}.\nstdout: {}\nstderr: {}",
+            "O executor Qwen3-TTS Base não retornou um objeto JSON válido. Código de saída: {}.\\nstdout: {}\\nstderr: {}",
             output.status,
             if stdout_detail.is_empty() { "<vazio>" } else { &stdout_detail },
             if stderr_detail.is_empty() { "<vazio>" } else { &stderr_detail },
         )
     })?;
+
+    if !stdout_warning.is_empty() {
+        eprintln!("Aviso do executor Qwen3-TTS Base: {}", diagnostic_excerpt(&stdout_warning, 2000));
+    }
 
     let response_status = response.get("status").and_then(Value::as_str).unwrap_or("desconhecido");
     if !output.status.success() || response_status != "completed" {
