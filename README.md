@@ -194,16 +194,16 @@ The resolved resource path is `shared.resources.piper-tts`. Inside that director
 - `runner.py` is a persistent JSON-lines worker.
 - `runtime.json` describes the Python executable, worker, voice model, and language.
 
-### Qwen3-TTS 0.6B
+### Qwen3-TTS 1.7B
 
-Qwen3-TTS is the higher-quality AI voice generation runtime. Shared installs PyTorch and torchaudio from the official CPU-only PyTorch wheel index, then installs `qwen-tts`. It downloads the official `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` model into the central Shared model directory. The worker explicitly selects CPU, float32, and SDPA attention. CUDA and FlashAttention are not required or used.
+Qwen3-TTS is the higher-quality AI voice generation runtime. Shared installs PyTorch and torchaudio from the official CPU-only PyTorch wheel index, then installs `qwen-tts`. It downloads the official `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` model into the central Shared model directory. The worker explicitly selects CPU, float32, and SDPA attention. CUDA and FlashAttention are not required or used.
 
 The resolved resource path is `shared.resources.qwen3-tts`. Inside that directory:
 - `venv` contains the isolated CPU-only Python environment.
 - `runner.py` is a persistent JSON-lines worker.
 - `runtime.json` describes the model path, Python executable, worker, device, and default speaker.
 
-The 0.6B CustomVoice model provides its preset speaker voices and supports English and Portuguese among its supported languages. This variant does not provide voice cloning or voice design; those capabilities require different model variants and are not downloaded by this dependency.
+The 1.7B CustomVoice model provides its preset speaker voices and supports English and Portuguese among its supported languages. This variant does not provide voice cloning or voice design; those capabilities require different model variants and are not downloaded by this dependency.
 
 ### Worker protocol
 
