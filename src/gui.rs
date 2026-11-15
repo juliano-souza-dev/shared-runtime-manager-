@@ -1,9 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use serde::Serialize;
-use std::{fs, sync::atomic::{AtomicBool, Ordering}};
+use std::{fs, sync::{atomic::{AtomicBool, Ordering}, Mutex}};
 use shared_runtime_manager::{api, applications, dependency_queue, manager, process_manager};
 
 static QUEUE_RUNNING: AtomicBool = AtomicBool::new(false);
+static PROCESSING_LOG_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Serialize)]
 struct Dashboard {
@@ -15,7 +16,19 @@ struct Dashboard {
 fn error_text(error: impl std::fmt::Display) -> String { error.to_string() }
 fn detailed_error(error: &anyhow::Error) -> String { format!("{error:#}\n\nDiagnóstico técnico:\n{error:?}") }
 
+fn record_processing_failure(task_type: &str, title: &str, detail: &str) -> String {
+    if let Err(log_error) = append_processing_log(task_type, title, detail) {
+        return format!("{detail}\n\nTambém não foi possível gravar o log: {log_error}");
+    }
+    detail.to_owned()
+}
+
+fn record_processing_error(task_type: &str, title: &str, error: impl std::fmt::Display) -> String {
+    record_processing_failure(task_type, title, &error.to_string())
+}
+
 fn append_processing_log(task_type: &str, title: &str, detail: &str) -> Result<(), String> {
+    let _guard = PROCESSING_LOG_LOCK.lock().map_err(|_| "O registro de logs está indisponível.".to_owned())?;
     let root = manager::root().map_err(error_text)?;
     let registry = root.join("registry");
     fs::create_dir_all(&registry).map_err(error_text)?;
@@ -116,35 +129,62 @@ fn install_ecosystem_application(app: tauri::AppHandle, app_id: String, mode: St
 }
 #[tauri::command]
 fn open_ecosystem_application(app: tauri::AppHandle, app_id: String) -> Result<serde_json::Value, String> {
-    let entry = applications::catalog().map_err(error_text)?
-        .into_iter().find(|item| item.id == app_id)
-        .ok_or_else(|| format!("Aplicativo '{app_id}' não encontrado no catálogo."))?;
-    if entry.mode.as_deref() == Some("dev") {
-        if let Some(process) = process_manager::list().map_err(error_text)?.into_iter().find(|item| item.app_id == app_id) {
-            return serde_json::to_value(process).map_err(error_text);
+    let title = format!("Falha ao abrir/iniciar o aplicativo {app_id}");
+    let result = (|| -> Result<serde_json::Value, String> {
+        let entry = applications::catalog().map_err(|error| detailed_error(&error))?
+            .into_iter().find(|item| item.id == app_id)
+            .ok_or_else(|| format!("Aplicativo '{app_id}' não encontrado no catálogo."))?;
+        if entry.mode.as_deref() == Some("dev") {
+            if let Some(process) = process_manager::list().map_err(|error| detailed_error(&error))?.into_iter().find(|item| item.app_id == app_id) {
+                return serde_json::to_value(process).map_err(error_text);
+            }
+            let (cwd, name, command) = applications::dev_spec(&app_id).map_err(|error| detailed_error(&error))?;
+            let process = process_manager::start_dev(app, app_id.clone(), name, cwd, command).map_err(|error| detailed_error(&error))?;
+            serde_json::to_value(process).map_err(error_text)
+        } else {
+            applications::open(&app_id).map_err(|error| detailed_error(&error))?;
+            Ok(serde_json::json!({"status":"launched","mode":"executable"}))
         }
-        let (cwd, name, command) = applications::dev_spec(&app_id).map_err(error_text)?;
-        let process = process_manager::start_dev(app, app_id, name, cwd, command).map_err(error_text)?;
-        serde_json::to_value(process).map_err(error_text)
-    } else {
-        applications::open(&app_id).map_err(error_text)?;
-        Ok(serde_json::json!({"status":"launched","mode":"executable"}))
-    }
+    })();
+    result.map_err(|error| record_processing_error("application-launch", &title, error))
 }
 #[tauri::command]
 fn application_processes() -> Result<Vec<process_manager::ProcessInfo>, String> {
-    process_manager::list().map_err(error_text)
+    let processes = process_manager::list().map_err(|error| record_processing_error(
+        "application-monitor", "Falha ao consultar processos dos aplicativos", error
+    ))?;
+    // list() removes terminated processes after returning their final status, so
+    // each abnormal exit is logged exactly once by this polling command.
+    for process in processes.iter().filter(|process| process.status == "error") {
+        let detail = format!(
+            "O processo do aplicativo '{}' foi encerrado com falha.\nPID: {}\nIniciado em (Unix): {}\nStatus: {}",
+            process.name, process.pid, process.started_at, process.status
+        );
+        let _ = append_processing_log(
+            "application-process",
+            &format!("O aplicativo {} encerrou com erro", process.name),
+            &detail
+        );
+    }
+    Ok(processes)
 }
 #[tauri::command]
 fn stop_application_process(app: tauri::AppHandle, app_id: String) -> Result<(), String> {
-    process_manager::stop(app, &app_id).map_err(error_text)
+    process_manager::stop(app, &app_id).map_err(|error| record_processing_error(
+        "application-stop", &format!("Falha ao encerrar o aplicativo {app_id}"), error
+    ))
 }
 #[tauri::command]
 fn run_application_shell_command(app: tauri::AppHandle, app_id: String, command: String) -> Result<(), String> {
-    let (cwd, _, _) = applications::dev_spec(&app_id).map_err(error_text)?;
-    process_manager::run_command(app, app_id, cwd, command).map_err(error_text)
+    let title = format!("Falha ao enviar comando ao terminal integrado ({app_id})");
+    let result = (|| -> Result<(), String> {
+        let (cwd, _, _) = applications::dev_spec(&app_id).map_err(|error| detailed_error(&error))?;
+        process_manager::run_command(app, app_id.clone(), cwd.clone(), command.clone()).map_err(|error| {
+            format!("Comando: {command}\nDiretório: {}\nDiagnóstico técnico:\n{error:#?}", cwd.display())
+        })
+    })();
+    result.map_err(|error| record_processing_error("integrated-terminal", &title, error))
 }
-
 #[tauri::command]
 fn dashboard_data() -> Result<Dashboard, String> {
     let root = manager::root().map_err(error_text)?;
@@ -167,20 +207,24 @@ fn delete_application(app_id: String) -> Result<(), String> {
 }
 #[tauri::command]
 fn synchronize_application(app_id: String) -> Result<(), String> {
-    if QUEUE_RUNNING.load(Ordering::SeqCst) {
-        return Err("A fila de dependências já está em execução. Aguarde a conclusão antes de sincronizar outro aplicativo.".to_owned());
-    }
-    let app = manager::applications().map_err(error_text)?
-        .into_iter().find(|item| item.id == app_id)
-        .ok_or_else(|| format!("Application '{app_id}' is not registered."))?;
-    if app.installation_path.is_empty() {
-        return Err(format!("Application '{app_id}' has no installation path."));
-    }
-    if !std::path::Path::new(&app.config_path).is_file() {
-        manager::register_app_at_path(&app.id, &app.name, &app.installation_path).map_err(error_text)?;
-    }
-    dependency_queue::enqueue_application(&app_id, &app.installation_path).map_err(error_text)?;
-    start_dependency_queue()
+    let title = format!("Falha ao sincronizar dependências de {app_id}");
+    let result = (|| -> Result<(), String> {
+        if QUEUE_RUNNING.load(Ordering::SeqCst) {
+            return Err("A fila de dependências já está em execução. Aguarde a conclusão antes de sincronizar outro aplicativo.".to_owned());
+        }
+        let app = manager::applications().map_err(error_text)?
+            .into_iter().find(|item| item.id == app_id)
+            .ok_or_else(|| format!("Application '{app_id}' is not registered."))?;
+        if app.installation_path.is_empty() {
+            return Err(format!("Application '{app_id}' has no installation path."));
+        }
+        if !std::path::Path::new(&app.config_path).is_file() {
+            manager::register_app_at_path(&app.id, &app.name, &app.installation_path).map_err(error_text)?;
+        }
+        dependency_queue::enqueue_application(&app_id, &app.installation_path).map_err(error_text)?;
+        start_dependency_queue()
+    })();
+    result.map_err(|error| record_processing_error("dependency-sync", &title, error))
 }
 fn write_install_status(
     status: &str,
@@ -218,7 +262,7 @@ fn spawn_install_shared_resource(resource_id: String, app_id: Option<String>) ->
     dependency_queue::begin_operation();
     if let Err(error) = write_install_status("installing", &format!("Preparando instalação de {resource_id}"), &resource_id, app_id.as_deref(), serde_json::json!([])) {
         QUEUE_RUNNING.store(false, Ordering::SeqCst);
-        return Err(error);
+        return Err(record_processing_error("shared-resource", &format!("Falha ao preparar instalação de {resource_id}"), error));
     }
     std::thread::spawn(move || {
         match manager::install(&resource_id, app_id.as_deref()) {
@@ -251,12 +295,17 @@ fn install_shared_resource(resource_id: String, app_id: Option<String>) -> Resul
 }
 #[tauri::command]
 fn delete_shared_dependency(dependency_id: String) -> Result<(), String> {
-    manager::delete_resource(&dependency_id).map_err(error_text)
+    manager::delete_resource(&dependency_id).map_err(|error| record_processing_error(
+        "shared-resource-delete", &format!("Falha ao remover o recurso {dependency_id}"), error
+    ))
 }
 #[tauri::command]
 fn start_dependency_queue() -> Result<(), String> {
     if QUEUE_RUNNING.swap(true, Ordering::SeqCst) {
-        return Err("A fila de dependências já está em execução.".to_owned());
+        return Err(record_processing_error(
+            "dependency-queue", "Não foi possível iniciar a fila de dependências",
+            "A fila de dependências já está em execução."
+        ));
     }
     dependency_queue::begin_operation();
     std::thread::spawn(|| {
@@ -335,7 +384,7 @@ fn create_voice_profile(name: String, filename: String, audio_base64: String, re
         None,
     ) {
         QUEUE_RUNNING.store(false, Ordering::SeqCst);
-        return Err(error);
+        return Err(record_processing_error("voice-profile", "Falha ao iniciar a preparação do perfil de voz", error));
     }
     std::thread::spawn(move || {
         match shared_runtime_manager::voices::create_profile(&name, &filename, &audio_base64, &reference_text) {
@@ -384,7 +433,9 @@ fn set_default_voice(voice_id: String) -> Result<(), String> {
 }
 #[tauri::command]
 fn preview_voice(voice_id: String, text: String) -> Result<String, String> {
-    shared_runtime_manager::voices::preview(&voice_id, &text).map_err(error_text)
+    shared_runtime_manager::voices::preview(&voice_id, &text).map_err(|error| record_processing_error(
+        "voice-preview", &format!("Falha ao gerar prévia da voz {voice_id}"), error
+    ))
 }
 #[tauri::command]
 fn provider_catalog() -> Result<serde_json::Value, String> { api::provider_catalog().map_err(error_text) }
