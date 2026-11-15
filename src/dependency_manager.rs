@@ -598,7 +598,7 @@ pub(crate) fn ensure_dependency(root: &Path, id: &str) -> Result<PathBuf> {
             let python = ensure_python()?;
             Ok(PathBuf::from(python))
         }
-        "faster-whisper" | "pyav" => {
+        "faster-whisper" | "pyav" | "av" => {
             let python = ensure_python()?;
             if id == "faster-whisper" {
                 ensure_python_package(&python, "faster_whisper", "faster-whisper")?;
