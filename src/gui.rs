@@ -156,9 +156,18 @@ fn application_processes() -> Result<Vec<process_manager::ProcessInfo>, String> 
     // list() removes terminated processes after returning their final status, so
     // each abnormal exit is logged exactly once by this polling command.
     for process in processes.iter().filter(|process| process.status == "error") {
+        let output = process_manager::recent_output(&process.app_id);
+        let numbered_output = if output.is_empty() {
+            "O processo não forneceu saída capturada.".to_owned()
+        } else {
+            output.iter().enumerate()
+                .map(|(index, line)| format!("[process:{:04}] {line}", index + 1))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
         let detail = format!(
-            "O processo do aplicativo '{}' foi encerrado com falha.\nPID: {}\nIniciado em (Unix): {}\nStatus: {}",
-            process.name, process.pid, process.started_at, process.status
+            "O processo do aplicativo '{}' foi encerrado com falha.\nPID: {}\nIniciado em (Unix): {}\nStatus: {}\n\nSaída capturada (stdout/stderr):\n{}",
+            process.name, process.pid, process.started_at, process.status, numbered_output
         );
         let _ = append_processing_log(
             "application-process",
