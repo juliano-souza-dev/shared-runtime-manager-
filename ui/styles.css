@@ -31,3 +31,22 @@
 .processing-actions button:disabled{opacity:.55;cursor:wait}
 
 .ecosystem-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}.ecosystem-card{min-width:0}.ecosystem-description{font-size:11px;color:#aeb8c9;line-height:1.6;margin:10px 0}.ecosystem-card .meta{overflow-wrap:anywhere}.ecosystem-card .meta a{color:#aebaff}.ecosystem-actions{margin-top:15px;flex-wrap:wrap}.ecosystem-actions .primary{background:#8796f3;color:#101628;border-color:#8796f3}.ecosystem-actions .small-btn{font-size:10px}
+
+.monitor-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:15px}
+.monitor-card{min-width:0}
+.monitor-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:13px}
+.monitor-card-head h3{font-size:14px;margin:0 0 5px}
+.monitor-card-head small{display:block;color:var(--muted);font:10px ui-monospace,monospace;overflow-wrap:anywhere}
+.terminal-window{overflow:hidden;border:1px solid #273449;border-radius:9px;background:#080d14}
+.terminal-title{height:32px;display:flex;align-items:center;gap:6px;padding:0 11px;background:#111925;border-bottom:1px solid #273449}
+.terminal-title>span{width:8px;height:8px;border-radius:50%;background:#e17d83}
+.terminal-title>span:nth-child(2){background:#d9b66e}.terminal-title>span:nth-child(3){background:#70c69b}
+.terminal-title b{margin-left:8px;color:#8795ab;font:10px ui-monospace,monospace;font-weight:500}
+.terminal-output{height:250px;overflow:auto;padding:12px;color:#c6d2e5;font:11px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.terminal-line{min-height:1em}.terminal-line.stderr{color:#f19aa3}.terminal-line.system{color:#91a8ff}.terminal-line.command{color:#9de0b9}.terminal-placeholder{color:#68768d}
+.monitor-actions{display:flex;justify-content:flex-end;gap:7px;margin:11px 0}
+.terminal-command{display:flex;align-items:center;gap:8px;border:1px solid #2a3548;border-radius:8px;background:#0c121c;padding:6px 8px}
+.terminal-command>span{color:#9de0b9;font:12px ui-monospace,monospace}
+.terminal-command input{flex:1;min-width:0;border:0;background:transparent;padding:7px 2px;color:#e0e8f5;font:11px ui-monospace,monospace;outline:none}
+.terminal-command input:focus{box-shadow:none}
+@media(max-width:1050px){.monitor-grid{grid-template-columns:1fr}}
