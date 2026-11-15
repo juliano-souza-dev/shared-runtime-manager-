@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use serde::Serialize;
 use std::{fs, sync::atomic::{AtomicBool, Ordering}};
-use shared_runtime_manager::{api, applications, dependency_queue, manager};
+use shared_runtime_manager::{api, applications, dependency_queue, manager, process_manager};
 
 static QUEUE_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -299,7 +299,7 @@ fn save_api_key(provider: String, secret: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            dashboard_data, applications_catalog, install_ecosystem_application, open_ecosystem_application, register_application, delete_application, synchronize_application, delete_shared_dependency,
+            dashboard_data, applications_catalog, install_ecosystem_application, open_ecosystem_application, application_processes, stop_application_process, run_application_shell_command, register_application, delete_application, synchronize_application, delete_shared_dependency,
             start_dependency_queue, dependency_queue_status, install_shared_resource, cancel_processing, restart_processing,
             provider_catalog, available_api_models, save_api_provider, authorize_api,
             revoke_api, save_api_key, voice_library, create_voice_profile, set_default_voice, preview_voice
