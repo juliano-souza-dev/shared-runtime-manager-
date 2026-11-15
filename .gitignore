@@ -1,7 +1,66 @@
-/target
-*.log
-*.tmp
-.DS_Store
-Thumbs.db
+# Rust build artifacts
+/target/
+**/target/
 
+# Node.js dependencies and generated frontend/build output
+/node_modules/
+**/node_modules/
+/dist/
+/out/
+/coverage/
+/.npm/
+
+# Tauri bundling artifacts
+/bundle/
+/src-tauri/target/
+
+# Local application configuration and secrets
 shared.config.json
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.local
+*.local.*
+*.secret
+*.secret.*
+
+# Local runtime state, caches, and generated data
+.cache/
+.cache-*/
+.tmp/
+.temp/
+.srm/
+.runtime/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs and temporary files
+*.log
+*.log.*
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# Operating system files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# IDE/editor workspace files
+.idea/
+.vscode/
+*.code-workspace
+
+# Test and diagnostic artifacts
+*.profraw
+*.gcda
+*.gcno
+*.trace
