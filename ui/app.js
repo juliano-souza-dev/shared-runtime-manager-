@@ -48,7 +48,7 @@ function appendTerminalLine(payload){
  terminalLines[id].push({stream:payload.stream||"stdout",line:payload.line||"",timestamp:payload.timestamp||0});
  if(terminalLines[id].length>500)terminalLines[id].splice(0,terminalLines[id].length-500);
  const output=document.querySelector('[data-terminal-output="'+CSS.escape(id)+'"]');
- if(output){output.insertAdjacentHTML("beforeend",'<div class="terminal-line '+esc(payload.stream||"stdout")+'">'+esc(payload.line||"")+'</div>');output.scrollTop=output.scrollHeight}
+ if(output){const nearBottom=output.scrollHeight-output.scrollTop-output.clientHeight<32;output.insertAdjacentHTML("beforeend",'<div class="terminal-line '+esc(payload.stream||"stdout")+'">'+esc(payload.line||"")+'</div>');if(nearBottom)output.scrollTop=output.scrollHeight}
 }
 async function setupTerminalListener(){
  if(terminalListenerReady||!window.__TAURI__?.event?.listen)return;
@@ -61,6 +61,7 @@ async function refreshMonitor(){
 }
 function renderMonitor(){
  const list=$("monitor-list");if(!list)return;
+ const previousScroll={};list.querySelectorAll("[data-terminal-output]").forEach(output=>previousScroll[output.dataset.terminalOutput]=output.scrollTop);
  const count=$("monitor-nav-count");if(count){count.textContent=monitoredProcesses.length;count.classList.toggle("hidden",!monitoredProcesses.length)}
  const apps=state.ecosystem||[];
  const activeIds=new Set(monitoredProcesses.map(p=>p.appId));
@@ -72,6 +73,7 @@ function renderMonitor(){
   return '<article class="panel monitor-card"><div class="monitor-card-head"><div><h3>'+esc(app.name)+'</h3><small>'+esc(app.id)+' · '+esc(app.source_path||"")+'</small></div><span class="processing-badge '+(process?'running':'idle')+'">'+(process?'DEV ativo · PID '+process.pid:'Parado')+'</span></div><div class="terminal-window"><div class="terminal-title"><span></span><span></span><span></span><b>'+esc(app.id)+' / bash</b></div><div class="terminal-output" data-terminal-output="'+esc(app.id)+'">'+(output||'<div class="terminal-placeholder">A saída do Bash aparecerá aqui quando a aplicação for iniciada.</div>')+'</div></div><div class="monitor-actions">'+(process?'<button class="small-btn danger" data-stop-process="'+esc(app.id)+'">■ Encerrar processo</button>':'<button class="primary" data-start-process="'+esc(app.id)+'">▶ Iniciar em DEV</button>')+'<button class="small-btn" data-clear-terminal="'+esc(app.id)+'">Limpar console</button></div><form class="terminal-command" data-terminal-form="'+esc(app.id)+'"><span>$</span><input name="command" autocomplete="off" spellcheck="false" placeholder="Digite um comando Bash..."><button class="small-btn">Executar</button></form></article>';
  }).join("");
  list.innerHTML=cards||empty("Nenhum aplicativo instalado em modo DEV. Instale um aplicativo pelo Ecossistema para gerenciá-lo aqui.");
+ list.querySelectorAll("[data-terminal-output]").forEach(output=>{if(Object.prototype.hasOwnProperty.call(previousScroll,output.dataset.terminalOutput))output.scrollTop=previousScroll[output.dataset.terminalOutput]});
 }
 $("monitor-list").addEventListener("click",async e=>{
  const start=e.target.closest("[data-start-process]"),stop=e.target.closest("[data-stop-process]"),clear=e.target.closest("[data-clear-terminal]");
