@@ -84,13 +84,16 @@ function renderProcessingLogs(logs){
  }).join(""):empty(processingLogs.length?"Nenhum registro corresponde aos filtros atuais.":"Nenhuma falha registrada. Os erros de processamento aparecerão nesta página.");
 }
 async function refreshProcessing(){if(!invoke)return;try{const [next,logs]=await Promise.all([invoke("dependency_queue_status"),invoke("processing_logs")]);renderProcessing(next);renderProcessingLogs(logs);if(next.taskType==="voice-profile"&&["completed","error"].includes(next.status)&&lastVoiceProcessingStatus!==next.status){lastVoiceProcessingStatus=next.status;if(next.status==="completed"){state.voices=await invoke("voice_library");renderVoices();note("Perfil de voz pronto e disponível na biblioteca.")}}else if(next.taskType==="voice-profile"&&next.status==="running"){lastVoiceProcessingStatus="running"}}catch(e){console.error("Não foi possível atualizar a Central de Processamentos:",e)}}
+function cleanTerminalOutput(value){
+ return String(value||"").replace(/\\x1b\\][^\\x07]*(?:\\x07|\\x1b\\\\)/g,"").replace(/\\x1b\\[[0-?]*[ -/]*[@-~]/g,"").replace(/\\r\\n/g,"\\n").replace(/\\r/g,"");
+}
 function appendTerminalLine(payload){
  const id=payload.appId;if(!id)return;
  terminalLines[id]=terminalLines[id]||[];
- terminalLines[id].push({stream:payload.stream||"stdout",line:payload.line||"",timestamp:payload.timestamp||0});
+ terminalLines[id].push({stream:payload.stream||"stdout",line:cleanTerminalOutput(payload.line||""),timestamp:payload.timestamp||0});
  if(terminalLines[id].length>500)terminalLines[id].splice(0,terminalLines[id].length-500);
  const output=document.querySelector('[data-terminal-output="'+CSS.escape(id)+'"]');
- if(output){const nearBottom=output.scrollHeight-output.scrollTop-output.clientHeight<32;output.insertAdjacentHTML("beforeend",'<span class="terminal-line '+esc(payload.stream||"stdout")+'">'+esc(payload.line||"")+'</span>');if(nearBottom)output.scrollTop=output.scrollHeight}
+ if(output){const nearBottom=output.scrollHeight-output.scrollTop-output.clientHeight<32;output.insertAdjacentHTML("beforeend",'<span class="terminal-line '+esc(payload.stream||"stdout")+'">'+esc(cleanTerminalOutput(payload.line||""))+'</span>');if(nearBottom)output.scrollTop=output.scrollHeight}
 }
 async function setupTerminalListener(){
  if(terminalListenerReady||!window.__TAURI__?.event?.listen)return;
