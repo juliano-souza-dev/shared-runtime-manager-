@@ -275,7 +275,7 @@ fn launch_dev(def: &Definition, workdir: &Path, source: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn install(app_id: &str, mode: &str) -> Result<()> {
+pub fn dev_spec(app_id: &str) -> Result<(PathBuf, String, String)> {\n    let def = definition(app_id)?;\n    let root = super::manager::root()?;\n    let source = root.join("applications").join(def.id).join("source");\n    let workdir = source.join(def.frontend_dir);\n    let command = if def.id == "nova-generator" {\n        "npm run tauri --workspace @nova-generator/desktop -- dev".to_owned()\n    } else {\n        "npm run tauri dev".to_owned()\n    };\n    Ok((workdir, def.name.to_owned(), command))\n}\n\npub fn install(app_id: &str, mode: &str) -> Result<()> {
     if !matches!(mode, "dev" | "executable") {
         bail!("Modo inválido. Use 'dev' ou 'executable'.");
     }
