@@ -14,6 +14,42 @@ struct Dashboard {
 }
 fn error_text(error: impl std::fmt::Display) -> String { error.to_string() }
 
+fn append_processing_log(task_type: &str, title: &str, detail: &str) -> Result<(), String> {
+    let root = manager::root().map_err(error_text)?;
+    let registry = root.join("registry");
+    fs::create_dir_all(&registry).map_err(error_text)?;
+    let path = registry.join("processing-logs.json");
+    let mut logs: Vec<serde_json::Value> = if path.is_file() {
+        serde_json::from_slice(&fs::read(&path).map_err(error_text)?).unwrap_or_default()
+    } else { Vec::new() };
+    let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default().as_secs();
+    logs.insert(0, serde_json::json!({
+        "id": format!("{}-{}", timestamp, logs.len()),
+        "timestamp": timestamp,
+        "taskType": task_type,
+        "title": title,
+        "detail": detail
+    }));
+    logs.truncate(200);
+    let temporary = registry.join("processing-logs.json.tmp");
+    fs::write(&temporary, serde_json::to_vec_pretty(&logs).map_err(error_text)?).map_err(error_text)?;
+    if path.exists() { fs::remove_file(&path).map_err(error_text)?; }
+    fs::rename(&temporary, &path).map_err(error_text)
+}
+
+fn record_status_failures(task_type: &str, title: &str) {
+    if let Ok(status) = dependency_queue::status() {
+        if let Some(results) = status.get("results").and_then(serde_json::Value::as_array) {
+            for result in results.iter().filter(|item| item.get("status").and_then(serde_json::Value::as_str) == Some("error")) {
+                let item_title = result.get("id").and_then(serde_json::Value::as_str).unwrap_or(title);
+                let detail = result.get("message").and_then(serde_json::Value::as_str).unwrap_or("Falha sem detalhes.");
+                let _ = append_processing_log(task_type, &format!("{title} · {item_title}"), detail);
+            }
+        }
+    }
+}
+
 fn write_voice_processing_status(status: &str, current: &str, result: Option<serde_json::Value>) -> Result<(), String> {
     let root = manager::root().map_err(error_text)?;
     let registry = root.join("registry");
@@ -57,12 +93,17 @@ fn install_ecosystem_application(app: tauri::AppHandle, app_id: String, mode: St
                         .map_err(|error| anyhow::anyhow!(error))
                 }) {
                     Ok(()) => { let _ = write_install_status("completed", &format!("{app_id} instalado e iniciado em DEV"), &app_id, None, serde_json::json!([{"id":app_id,"status":"completed","message":"Instalado e iniciado pelo Bash integrado."}])); }
-                    Err(error) => { let _ = write_install_status("error", &format!("Instalado, mas não foi possível iniciar {app_id}"), &app_id, None, serde_json::json!([{"id":app_id,"status":"error","message":format!("{error:#}")}])); }
+                    Err(error) => {
+                        let detail = format!("{error:#}");
+                        let _ = append_processing_log("application-start", &format!("Falha ao iniciar {app_id} em DEV"), &detail);
+                        let _ = write_install_status("error", &format!("Instalado, mas não foi possível iniciar {app_id}"), &app_id, None, serde_json::json!([{"id":app_id,"status":"error","message":detail}]));
+                    }
                 }
             }
             Ok(()) => {}
             Err(error) => {
                 let detail = format!("{error:#}");
+                let _ = append_processing_log("application-install", &format!("Falha ao instalar {app_id}"), &detail);
                 let _ = write_install_status("error", &format!("Falha ao instalar {app_id}"), &app_id, None,
                     serde_json::json!([{"id":app_id,"status":"error","message":detail}]));
                 let _ = dependency_queue::record_history();
@@ -190,7 +231,9 @@ fn spawn_install_shared_resource(resource_id: String, app_id: Option<String>) ->
                 let _ = dependency_queue::mark_cancelled();
             }
             Err(error) => {
-                let result = serde_json::json!([{"id":resource_id.clone(),"status":"error","message":format!("{error:#}")}]);
+                let detail = format!("{error:#}");
+                let _ = append_processing_log("shared-resource", &format!("Falha ao instalar {resource_id}"), &detail);
+                let result = serde_json::json!([{"id":resource_id.clone(),"status":"error","message":detail}]);
                 if write_install_status("error", &format!("Falha ao instalar {resource_id}"), &resource_id, app_id.as_deref(), result).is_ok() {
                     let _ = dependency_queue::record_history();
                 }
@@ -220,8 +263,12 @@ fn start_dependency_queue() -> Result<(), String> {
             if dependency_queue::cancel_requested() {
                 let _ = dependency_queue::mark_cancelled();
             } else {
-                let _ = dependency_queue::set_failure(&format!("{error:#}"));
+                let detail = format!("{error:#}");
+                let _ = append_processing_log("dependency-queue", "Falha no processamento de dependências", &detail);
+                let _ = dependency_queue::set_failure(&detail);
             }
+        } else {
+            record_status_failures("dependency-queue", "Falha na dependência");
         }
         QUEUE_RUNNING.store(false, Ordering::SeqCst);
     });
@@ -263,6 +310,13 @@ fn restart_processing(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn dependency_queue_status() -> Result<serde_json::Value, String> {
     dependency_queue::status().map_err(error_text)
+}
+#[tauri::command]
+fn processing_logs() -> Result<Vec<serde_json::Value>, String> {
+    let root = manager::root().map_err(error_text)?;
+    let path = root.join("registry/processing-logs.json");
+    if !path.is_file() { return Ok(Vec::new()); }
+    serde_json::from_slice(&fs::read(path).map_err(error_text)?).map_err(error_text)
 }
 #[tauri::command]
 fn voice_library() -> Result<serde_json::Value, String> {
@@ -309,6 +363,7 @@ fn create_voice_profile(name: String, filename: String, audio_base64: String, re
                     "status": "error",
                     "message": detail
                 });
+                let _ = append_processing_log("voice-profile", "Falha ao preparar o perfil de voz", &detail);
                 if write_voice_processing_status(
                     "error",
                     "Falha ao preparar o perfil de voz.",
@@ -354,7 +409,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             dashboard_data, applications_catalog, install_ecosystem_application, open_ecosystem_application, application_processes, stop_application_process, run_application_shell_command, register_application, delete_application, synchronize_application, delete_shared_dependency,
-            start_dependency_queue, dependency_queue_status, install_shared_resource, cancel_processing, restart_processing,
+            start_dependency_queue, dependency_queue_status, processing_logs, install_shared_resource, cancel_processing, restart_processing,
             provider_catalog, available_api_models, save_api_provider, authorize_api,
             revoke_api, save_api_key, voice_library, create_voice_profile, set_default_voice, preview_voice
         ])
