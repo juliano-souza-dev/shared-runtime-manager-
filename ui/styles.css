@@ -61,3 +61,15 @@
 .failure-log pre{max-height:440px;overflow:auto;margin:10px 0 0;padding:13px;border-radius:7px;background:#090d14;color:#d3dced;font:10px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4}
 .processing-logs-panel{margin-bottom:12px}
 @media(max-width:760px){.failure-log-head{align-items:flex-start;flex-direction:column}.failure-log-head button{align-self:flex-start}}
+
+
+/* Dedicated failure investigation workspace */
+.logs-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) minmax(170px,230px) auto;gap:10px;align-items:center;margin:14px 0 18px;padding:13px;border:1px solid var(--line);border-radius:10px;background:#111824}
+.logs-toolbar input,.logs-toolbar select{min-width:0}
+.failure-log-list{display:grid;gap:11px}
+.failure-log{margin:0;padding:16px;border-color:#563740;background:linear-gradient(115deg,#1a1b25,#141923)}
+.failure-log-head strong{font-size:12px}
+.failure-log-head small{font:10px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace}
+.failure-log details summary{font-size:11px}
+.failure-log pre{max-height:560px;font-size:11px;line-height:1.7}
+@media(max-width:760px){.logs-toolbar{grid-template-columns:1fr}.logs-toolbar .processing-badge{justify-self:start}}
