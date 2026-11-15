@@ -41,17 +41,30 @@ fn applications_catalog() -> Result<Vec<applications::CatalogApplication>, Strin
     applications::catalog().map_err(error_text)
 }
 #[tauri::command]
-fn install_ecosystem_application(app_id: String, mode: String) -> Result<(), String> {
+fn install_ecosystem_application(app: tauri::AppHandle, app_id: String, mode: String) -> Result<(), String> {
     if QUEUE_RUNNING.swap(true, Ordering::SeqCst) {
         return Err("Já existe um processamento em andamento. Aguarde antes de instalar outro aplicativo.".to_owned());
     }
     dependency_queue::begin_operation();
     std::thread::spawn(move || {
-        if let Err(error) = applications::install(&app_id, &mode) {
-            let detail = format!("{error:#}");
-            let _ = write_install_status("error", &format!("Falha ao instalar {app_id}"), &app_id, None,
-                serde_json::json!([{"id":app_id,"status":"error","message":detail}]));
-            let _ = dependency_queue::record_history();
+        match applications::install(&app_id, &mode) {
+            Ok(()) if mode == "dev" => {
+                match applications::dev_spec(&app_id).and_then(|(cwd, name, command)| {
+                    process_manager::start_dev(app.clone(), app_id.clone(), name, cwd, command)
+                        .map(|_| ())
+                        .map_err(|error| anyhow::anyhow!(error))
+                }) {
+                    Ok(()) => { let _ = write_install_status("completed", &format!("{app_id} instalado e iniciado em DEV"), &app_id, None, serde_json::json!([{"id":app_id,"status":"completed","message":"Instalado e iniciado pelo Bash integrado."}])); }
+                    Err(error) => { let _ = write_install_status("error", &format!("Instalado, mas não foi possível iniciar {app_id}"), &app_id, None, serde_json::json!([{"id":app_id,"status":"error","message":format!("{error:#}")}])); }
+                }
+            }
+            Ok(()) => {}
+            Err(error) => {
+                let detail = format!("{error:#}");
+                let _ = write_install_status("error", &format!("Falha ao instalar {app_id}"), &app_id, None,
+                    serde_json::json!([{"id":app_id,"status":"error","message":detail}]));
+                let _ = dependency_queue::record_history();
+            }
         }
         QUEUE_RUNNING.store(false, Ordering::SeqCst);
     });
