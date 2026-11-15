@@ -6,11 +6,8 @@ use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
     fs,
-    io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::Command,
-    sync::mpsc,
-    thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -216,13 +213,15 @@ where
         .with_context(|| format!("{stage}: não foi possível ler a saída do terminal PTY."))?;
     let mut captured = String::new();
     let mut pending = String::new();
-    let mut line_number = 0usize;
     let mut buffer = [0u8; 8192];
     loop {
         let size = match reader.read(&mut buffer) {
             Ok(0) => break,
             Ok(size) => size,
             Err(error) => {
+                if child.try_wait().ok().flatten().is_some() {
+                    break;
+                }
                 let _ = child.kill();
                 bail!(
                     "{stage}: falha ao ler a saída do terminal PTY.\nComando: {display_command}\nDiretório: {}\nErro de leitura: {error}",
@@ -236,12 +235,10 @@ where
         while let Some(position) = pending.find('\n') {
             let line = pending[..position].trim_end_matches('\r').to_owned();
             pending.drain(..=position);
-            line_number += 1;
             on_output("stdout", &line);
         }
     }
     if !pending.is_empty() {
-        line_number += 1;
         on_output("stdout", pending.trim_end_matches('\r'));
     }
     let status = child.wait().with_context(|| format!(
