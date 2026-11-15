@@ -13,6 +13,7 @@ struct Dashboard {
     providers: Vec<api::ProviderInfo>,
 }
 fn error_text(error: impl std::fmt::Display) -> String { error.to_string() }
+fn detailed_error(error: &anyhow::Error) -> String { format!("{error:#}\\n\\nDiagnóstico técnico:\\n{error:?}") }
 
 fn append_processing_log(task_type: &str, title: &str, detail: &str) -> Result<(), String> {
     let root = manager::root().map_err(error_text)?;
@@ -94,7 +95,7 @@ fn install_ecosystem_application(app: tauri::AppHandle, app_id: String, mode: St
                 }) {
                     Ok(()) => { let _ = write_install_status("completed", &format!("{app_id} instalado e iniciado em DEV"), &app_id, None, serde_json::json!([{"id":app_id,"status":"completed","message":"Instalado e iniciado pelo Bash integrado."}])); }
                     Err(error) => {
-                        let detail = format!("{error:#}");
+                        let detail = detailed_error(&error);
                         let _ = append_processing_log("application-start", &format!("Falha ao iniciar {app_id} em DEV"), &detail);
                         let _ = write_install_status("error", &format!("Instalado, mas não foi possível iniciar {app_id}"), &app_id, None, serde_json::json!([{"id":app_id,"status":"error","message":detail}]));
                     }
@@ -102,7 +103,7 @@ fn install_ecosystem_application(app: tauri::AppHandle, app_id: String, mode: St
             }
             Ok(()) => {}
             Err(error) => {
-                let detail = format!("{error:#}");
+                let detail = detailed_error(&error);
                 let _ = append_processing_log("application-install", &format!("Falha ao instalar {app_id}"), &detail);
                 let _ = write_install_status("error", &format!("Falha ao instalar {app_id}"), &app_id, None,
                     serde_json::json!([{"id":app_id,"status":"error","message":detail}]));
@@ -231,7 +232,7 @@ fn spawn_install_shared_resource(resource_id: String, app_id: Option<String>) ->
                 let _ = dependency_queue::mark_cancelled();
             }
             Err(error) => {
-                let detail = format!("{error:#}");
+                let detail = detailed_error(&error);
                 let _ = append_processing_log("shared-resource", &format!("Falha ao instalar {resource_id}"), &detail);
                 let result = serde_json::json!([{"id":resource_id.clone(),"status":"error","message":detail}]);
                 if write_install_status("error", &format!("Falha ao instalar {resource_id}"), &resource_id, app_id.as_deref(), result).is_ok() {
@@ -263,7 +264,7 @@ fn start_dependency_queue() -> Result<(), String> {
             if dependency_queue::cancel_requested() {
                 let _ = dependency_queue::mark_cancelled();
             } else {
-                let detail = format!("{error:#}");
+                let detail = detailed_error(&error);
                 let _ = append_processing_log("dependency-queue", "Falha no processamento de dependências", &detail);
                 let _ = dependency_queue::set_failure(&detail);
             }
@@ -357,7 +358,7 @@ fn create_voice_profile(name: String, filename: String, audio_base64: String, re
                 let _ = dependency_queue::mark_cancelled();
             }
             Err(error) => {
-                let detail = format!("{error:#}");
+                let detail = detailed_error(&error);
                 let result = serde_json::json!({
                     "id": "Perfil de voz",
                     "status": "error",
