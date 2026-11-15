@@ -43,9 +43,12 @@ function renderProcessing(status){
  $("processing-history").innerHTML=history.length?history.map(item=>'<div class="queue-result"><span class="queue-dot '+(item.status==="completed"?"success":"failed")+'"></span><div><strong>'+esc(item.taskType==="voice-profile"?"Criação de perfil de voz":item.resourceId||item.application||"Fila de dependências")+'</strong><small>'+esc(item.current||item.status)+' · '+(item.finishedAt?new Date(item.finishedAt*1000).toLocaleString():"")+'</small></div><b>'+ (item.status==="completed"?"Concluído":item.status==="cancelled"?"Cancelado":"Falha")+'</b></div>').join(""):empty("As operações concluídas, canceladas ou com falha aparecerão aqui.");
 }
 function renderProcessingLogs(logs){
- processingLogs=Array.isArray(logs)?logs:[];
+ const nextLogs=Array.isArray(logs)?logs:[];
  const count=$("processing-logs-count"),list=$("processing-logs");
  if(!count||!list)return;
+ if(list.dataset.rendered==="true"&&JSON.stringify(nextLogs)===JSON.stringify(processingLogs))return;
+ processingLogs=nextLogs;
+ list.dataset.rendered="true";
  count.textContent=processingLogs.length+" registro(s)";
  count.className="processing-badge "+(processingLogs.length?"failed":"idle");
  list.innerHTML=processingLogs.length?processingLogs.map(log=>{
