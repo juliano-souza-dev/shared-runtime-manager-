@@ -182,6 +182,8 @@ $("voice-list").onclick=async e=>{
  }
 };
 $("voices-refresh").onclick=load;
-$("processing-refresh").onclick=refreshProcessing;\n$("monitor-refresh").onclick=refreshMonitor;
+$("processing-refresh").onclick=refreshProcessing;
+$("monitor-refresh").onclick=refreshMonitor;
 load();
 setInterval(refreshProcessing,1000);
+setInterval(refreshMonitor,2000);
