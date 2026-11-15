@@ -317,7 +317,7 @@ where
         .stderr(Stdio::piped())
         .spawn()
         .with_context(|| format!(
-            "{stage}: não foi possível iniciar o Git.\\nComando: {display_command}\\nDiretório: {}",
+            "{stage}: não foi possível iniciar o Git.\nComando: {display_command}\nDiretório: {}",
             cwd.display()
         ))?;
 
@@ -366,7 +366,7 @@ where
         match receiver.recv_timeout(Duration::from_millis(100)) {
             Ok((stream, bytes)) => {
                 let output = String::from_utf8_lossy(&bytes);
-                on_output(stream, output.trim_end_matches(['\\r', '\\n']));
+                on_output(stream, output.trim_end_matches(['\\r', '\n']));
                 captured.push_str(&output);
                 if captured.len() > MAX_CAPTURED_OUTPUT {
                     let excess = captured.len() - MAX_CAPTURED_OUTPUT;
@@ -378,12 +378,12 @@ where
         }
 
         if let Some(status) = child.try_wait().with_context(|| format!(
-            "{stage}: falha ao consultar o processo Git.\\nComando: {display_command}"
+            "{stage}: falha ao consultar o processo Git.\nComando: {display_command}"
         ))? {
             // Drain any output already buffered by the reader threads before reporting.
             while let Ok((stream, bytes)) = receiver.try_recv() {
                 let output = String::from_utf8_lossy(&bytes);
-                on_output(stream, output.trim_end_matches(['\\r', '\\n']));
+                on_output(stream, output.trim_end_matches(['\\r', '\n']));
                 captured.push_str(&output);
                 if captured.len() > MAX_CAPTURED_OUTPUT {
                     let excess = captured.len() - MAX_CAPTURED_OUTPUT;
@@ -395,7 +395,7 @@ where
 
             if !status.success() {
                 bail!(
-                    "{stage} falhou.\\nComando: {display_command}\\nDiretório: {}\\nCódigo de saída: {status}\\n\\nÚltima saída capturada:\\n{}",
+                    "{stage} falhou.\nComando: {display_command}\nDiretório: {}\nCódigo de saída: {status}\n\nÚltima saída capturada:\n{}",
                     cwd.display(),
                     if captured.trim().is_empty() { "O Git não forneceu saída.".to_owned() } else { captured }
                 );
@@ -417,11 +417,11 @@ where
         let _ = stderr_reader.join();
         while let Ok((stream, bytes)) = receiver.try_recv() {
             let output = String::from_utf8_lossy(&bytes);
-            on_output(stream, output.trim_end_matches(['\\r', '\\n']));
+            on_output(stream, output.trim_end_matches(['\\r', '\n']));
             captured.push_str(&output);
         }
         bail!(
-            "{stage}: o Git excedeu o limite de 180 segundos e foi encerrado.\\nComando: {display_command}\\nDiretório: {}\\nÚltima saída capturada:\\n{}\\nVerifique a conexão com o GitHub e tente novamente.",
+            "{stage}: o Git excedeu o limite de 180 segundos e foi encerrado.\nComando: {display_command}\nDiretório: {}\nÚltima saída capturada:\n{}\nVerifique a conexão com o GitHub e tente novamente.",
             cwd.display(),
             if captured.trim().is_empty() { "Nenhuma saída recebida.".to_owned() } else { captured }
         );
@@ -577,7 +577,7 @@ where F: FnMut(&str, &str) {
     let source = root.join("applications").join(def.id).join("source");
     fs::create_dir_all(source.parent().expect("source has parent"))?;
     write_status("installing", &format!("Obtendo código-fonte de {}", def.name), def.id, 5, None)?;
-    on_output("system", "Obtendo código-fonte pelo Bash...");
+    on_output("system", "Obtendo código-fonte pelo Git (execução direta)...");
     ensure_source(def, &source, mode == "dev", &mut on_output)?;
     write_status("running", "Lendo shared.config.example.json e preparando o Shared Runtime", def.id, 20, None)?;
     on_output("system", "Preparando configurações e dependências compartilhadas...");
