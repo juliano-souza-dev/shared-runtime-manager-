@@ -187,7 +187,7 @@ fn command_output(program: &str, args: &[&str], cwd: &Path, stage: &str) -> Resu
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        bail!("{stage} falhou (código {:?}).\\n{}\\n{}", output.status.code(), stdout.trim(), stderr.trim());
+        bail!("{stage} falhou (código {:?}).\n{}\\n{}", output.status.code(), stdout.trim(), stderr.trim());
     }
     Ok(())
 }
