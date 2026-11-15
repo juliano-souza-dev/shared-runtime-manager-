@@ -59,6 +59,13 @@ function logReport(log){
  const date=log.timestamp?new Date(log.timestamp*1000).toLocaleString():"Data não informada";
  return ["SHARED RUNTIME MANAGER · RELATÓRIO DE FALHA",log.title||"Falha de processamento",date,"ID: "+(log.id||"não informado"),"Categoria: "+logCategory(log),"Tipo: "+(log.taskType||"não informado"),"","DIAGNÓSTICO COMPLETO","",log.detail||"Sem detalhes."].join("\n");
 }
+function renderProcessingTerminal(){
+ const output=$("processing-terminal-output");if(!output)return;
+ const appId=processingStatus.application||processingStatus.resourceId||processingStatus.appId;
+ const lines=appId?(terminalLines[appId]||[]):[];
+ output.innerHTML=lines.length?lines.map(line=>'<span class="terminal-line '+esc(line.stream)+'">'+esc(line.line)+'</span>').join(""):'<span class="terminal-placeholder">A saída dos comandos aparecerá aqui durante os processamentos.</span>';
+ output.scrollTop=output.scrollHeight;
+}
 function renderProcessingLogs(logs){
  const nextLogs=Array.isArray(logs)?logs:[];
  const count=$("processing-logs-count"),list=$("processing-logs");
@@ -83,7 +90,7 @@ function renderProcessingLogs(logs){
   return '<article class="failure-log"><div class="failure-log-head"><div><strong>'+esc(log.title||"Falha de processamento")+'</strong><small>'+esc(date)+' · '+esc(log.taskType||"processamento")+' · '+esc(log.id||"")+'</small></div><button class="small-btn" data-copy-log="'+esc(log.id)+'">▣ Copiar relatório</button></div><details><summary>Investigar diagnóstico completo</summary><pre>'+esc(log.detail||"Sem detalhes.")+'</pre></details><textarea class="log-copy-source" data-log-report="'+esc(log.id)+'" hidden>'+esc(report)+'</textarea></article>';
  }).join(""):empty(processingLogs.length?"Nenhum registro corresponde aos filtros atuais.":"Nenhuma falha registrada. Os erros de processamento aparecerão nesta página.");
 }
-async function refreshProcessing(){if(!invoke)return;try{const [next,logs]=await Promise.all([invoke("dependency_queue_status"),invoke("processing_logs")]);renderProcessing(next);renderProcessingLogs(logs);if(next.taskType==="voice-profile"&&["completed","error"].includes(next.status)&&lastVoiceProcessingStatus!==next.status){lastVoiceProcessingStatus=next.status;if(next.status==="completed"){state.voices=await invoke("voice_library");renderVoices();note("Perfil de voz pronto e disponível na biblioteca.")}}else if(next.taskType==="voice-profile"&&next.status==="running"){lastVoiceProcessingStatus="running"}}catch(e){console.error("Não foi possível atualizar a Central de Processamentos:",e)}}
+async function refreshProcessing(){if(!invoke)return;try{const [next,logs]=await Promise.all([invoke("dependency_queue_status"),invoke("processing_logs")]);renderProcessing(next);renderProcessingTerminal();renderProcessingLogs(logs);if(next.taskType==="voice-profile"&&["completed","error"].includes(next.status)&&lastVoiceProcessingStatus!==next.status){lastVoiceProcessingStatus=next.status;if(next.status==="completed"){state.voices=await invoke("voice_library");renderVoices();note("Perfil de voz pronto e disponível na biblioteca.")}}else if(next.taskType==="voice-profile"&&next.status==="running"){lastVoiceProcessingStatus="running"}}catch(e){console.error("Não foi possível atualizar a Central de Processamentos:",e)}}
 function cleanTerminalOutput(value){
  return String(value||"").replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g,"").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,"").replace(/\r\n/g,"\n").replace(/\r/g,"");
 }
@@ -94,6 +101,8 @@ function appendTerminalLine(payload){
  if(terminalLines[id].length>500)terminalLines[id].splice(0,terminalLines[id].length-500);
  const output=document.querySelector('[data-terminal-output="'+CSS.escape(id)+'"]');
  if(output){const nearBottom=output.scrollHeight-output.scrollTop-output.clientHeight<32;output.insertAdjacentHTML("beforeend",'<span class="terminal-line '+esc(payload.stream||"stdout")+'">'+esc(cleanTerminalOutput(payload.line||""))+'</span>');if(nearBottom)output.scrollTop=output.scrollHeight}
+ const activeId=processingStatus.application||processingStatus.resourceId||processingStatus.appId;
+ if(activeId===id)renderProcessingTerminal();
 }
 async function setupTerminalListener(){
  if(terminalListenerReady||!window.__TAURI__?.event?.listen)return;
