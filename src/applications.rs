@@ -5,7 +5,7 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
-    process::Command,
+    io::{BufRead, BufReader},\n    process::{Command, Stdio},\n    sync::mpsc,\n    thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -172,7 +172,8 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn command_output(program: &str, args: &[&str], cwd: &Path, stage: &str) -> Result<()> {
+fn command_output<F>(program: &str, args: &[&str], cwd: &Path, stage: &str, on_output: &mut F) -> Result<()>
+where F: FnMut(&str, &str) {
     let bash = super::shell::bash_path()
         .with_context(|| format!("{stage} exige Bash. Instale Git Bash ou configure SRM_BASH_PATH."))?;
     let command = std::iter::once(program)
@@ -180,27 +181,43 @@ fn command_output(program: &str, args: &[&str], cwd: &Path, stage: &str) -> Resu
         .map(shell_quote)
         .collect::<Vec<_>>()
         .join(" ");
-    let output = Command::new(bash)
+    let mut child = Command::new(bash)
         .arg("--noprofile").arg("--norc").arg("-lc").arg(command)
-        .current_dir(cwd).output()
-        .with_context(|| format!("Não foi possível iniciar {stage} pelo Bash."))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        bail!("{stage} falhou (código {:?}).\n{}\\n{}", output.status.code(), stdout.trim(), stderr.trim());
+        .current_dir(cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn().with_context(|| format!("Não foi possível iniciar {stage} pelo Bash."))?;
+    let (sender, receiver) = mpsc::channel::<(&'static str, String)>();
+    if let Some(stdout) = child.stdout.take() {
+        let tx = sender.clone();
+        thread::spawn(move || for line in BufReader::new(stdout).lines().flatten() { let _ = tx.send(("stdout", line)); });
+    }
+    if let Some(stderr) = child.stderr.take() {
+        let tx = sender.clone();
+        thread::spawn(move || for line in BufReader::new(stderr).lines().flatten() { let _ = tx.send(("stderr", line)); });
+    }
+    drop(sender);
+    let mut captured = String::new();
+    for (stream, line) in receiver {
+        on_output(stream, &line);
+        captured.push_str(&line);
+        captured.push('\n');
+    }
+    let status = child.wait().with_context(|| format!("Não foi possível aguardar {stage}."))?;
+    if !status.success() {
+        bail!("{stage} falhou (código {:?}).\n{}", status.code(), captured.trim());
     }
     Ok(())
 }
 
-fn ensure_source(def: &Definition, source: &Path) -> Result<()> {
+fn ensure_source<F>(def: &Definition, source: &Path, on_output: &mut F) -> Result<()>
+where F: FnMut(&str, &str) {
     if source.join(".git").is_dir() {
-        command_output("git", &["-C", source.to_string_lossy().as_ref(), "pull", "--ff-only", "origin", def.branch], source.parent().unwrap_or(source), "atualização do repositório")?;
+        command_output("git", &["-C", source.to_string_lossy().as_ref(), "pull", "--ff-only", "origin", def.branch], source.parent().unwrap_or(source), "atualização do repositório", on_output)?;
     } else {
         if source.exists() && fs::read_dir(source)?.next().is_some() {
             bail!("A pasta de destino existe e não está vazia: {}", source.display());
         }
         if let Some(parent) = source.parent() { fs::create_dir_all(parent)?; }
-        command_output("git", &["clone", "--branch", def.branch, "--depth", "1", def.repository, source.to_string_lossy().as_ref()], source.parent().unwrap_or(source), "Git Clone")?;
+        command_output("git", &["clone", "--branch", def.branch, "--depth", "1", def.repository, source.to_string_lossy().as_ref()], source.parent().unwrap_or(source), "Git Clone", on_output)?;
     }
     Ok(())
 }
@@ -235,23 +252,25 @@ fn prepare_shared(def: &Definition, source: &Path) -> Result<String> {
     Ok(declared_id.to_owned())
 }
 
-fn install_node_dependencies(def: &Definition, source: &Path) -> Result<PathBuf> {
+fn install_node_dependencies<F>(def: &Definition, source: &Path, on_output: &mut F) -> Result<PathBuf>
+where F: FnMut(&str, &str) {
     let workdir = source.join(def.frontend_dir);
     if !workdir.join("package.json").is_file() {
         bail!("Não foi encontrado package.json em {}", workdir.display());
     }
-    command_output("npm", &["install"], &workdir, "instalação das dependências Node.js")?;
+    command_output("npm", &["install"], &workdir, "instalação das dependências Node.js", on_output)?;
     Ok(workdir)
 }
 
-fn build_application(def: &Definition, source: &Path, workdir: &Path) -> Result<PathBuf> {
+fn build_application<F>(def: &Definition, source: &Path, workdir: &Path, on_output: &mut F) -> Result<PathBuf>
+where F: FnMut(&str, &str) {
     write_status("running", &format!("Compilando {}", def.name), def.id, 65, None)?;
     let (program, args): (&str, Vec<&str>) = if def.id == "nova-generator" {
         ("npm", vec!["run", "tauri", "--workspace", "@nova-generator/desktop", "--", "build"])
     } else {
         ("npm", vec!["run", "tauri", "build"])
     };
-    command_output(program, &args, if def.id == "nova-generator" { source } else { workdir }, "build Tauri")?;
+    command_output(program, &args, if def.id == "nova-generator" { source } else { workdir }, "build Tauri", on_output)?;
     let exe = source.join("apps/desktop/src-tauri/target/release").join(format!("{}.exe", def.cargo_package));
     if !exe.is_file() {
         bail!("O build terminou, mas o executável esperado não foi encontrado: {}", exe.display());
@@ -272,7 +291,7 @@ pub fn dev_spec(app_id: &str) -> Result<(PathBuf, String, String)> {
     Ok((workdir, def.name.to_owned(), command))
 }
 
-pub fn install(app_id: &str, mode: &str) -> Result<()> {
+pub fn install(app_id: &str, mode: &str) -> Result<()> {\n    install_with_output(app_id, mode, |_, _| {})\n}\n\npub fn install_with_output<F>(app_id: &str, mode: &str, mut on_output: F) -> Result<()>\nwhere F: FnMut(&str, &str) {
     if !matches!(mode, "dev" | "executable") {
         bail!("Modo inválido. Use 'dev' ou 'executable'.");
     }
@@ -281,14 +300,14 @@ pub fn install(app_id: &str, mode: &str) -> Result<()> {
     let source = root.join("applications").join(def.id).join("source");
     fs::create_dir_all(source.parent().expect("source has parent"))?;
     write_status("installing", &format!("Obtendo código-fonte de {}", def.name), def.id, 5, None)?;
-    ensure_source(def, &source)?;
+    on_output("system", "Obtendo código-fonte pelo Bash...");\n    ensure_source(def, &source, &mut on_output)?;
     write_status("running", "Lendo shared.config.example.json e preparando o Shared Runtime", def.id, 20, None)?;
     let shared_app_id = prepare_shared(def, &source)?;
     write_status("running", "Instalando dependências próprias do aplicativo", def.id, 45, None)?;
-    let workdir = install_node_dependencies(def, &source)?;
+    on_output("system", "Instalando dependências Node.js pelo Bash...");\n    let workdir = install_node_dependencies(def, &source, &mut on_output)?;
 
     let launch_path = if mode == "executable" {
-        let built = build_application(def, &source, &workdir)?;
+        let built = build_application(def, &source, &workdir, &mut on_output)?;
         let install_dir = root.join("applications").join(def.id).join("installed");
         fs::create_dir_all(&install_dir)?;
         let destination = install_dir.join(format!("{}.exe", def.cargo_package));
