@@ -1,7 +1,10 @@
 const invoke=window.__TAURI__?.core?.invoke,$=id=>document.getElementById(id);
 let state={applications:[],resources:[],providers:[],root:"",catalog:[],ecosystem:[],voices:{default_voice_id:null,voices:[]}};
 let processingStatus={status:"idle",progress:0,current:"Nenhuma operação executada",results:[]};
-let lastVoiceProcessingStatus="";\nlet monitoredProcesses=[];\nlet terminalLines={};\nlet terminalListenerReady=false;
+let lastVoiceProcessingStatus="";
+let monitoredProcesses=[];
+let terminalLines={};
+let terminalListenerReady=false;
 const titles={overview:"Visão geral",ecosystem:"Ecossistema de aplicativos",apps:"Aplicativos registrados",apis:"Provedores de API",resources:"Biblioteca de dependências",voices:"Biblioteca de vozes",processing:"Central de processamentos",monitor:"Monitor de aplicações"};
 function note(message,error=false){const n=$("notice");n.textContent=message;n.classList.remove("hidden","error");if(error)n.classList.add("error");clearTimeout(note.timer);note.timer=setTimeout(()=>n.classList.add("hidden"),6500)}
 async function act(command,args={},message){try{await invoke(command,args);if(message)note(message);await load()}catch(e){note(String(e),true);throw e}}
