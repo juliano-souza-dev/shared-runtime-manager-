@@ -271,6 +271,12 @@ where F: FnMut(&str, &str) {
 
 fn ensure_source<F>(def: &Definition, source: &Path, dev_mode: bool, on_output: &mut F) -> Result<()>
 where F: FnMut(&str, &str) {
+    if source.exists() && !source.is_dir() {
+        bail!(
+            "O caminho registrado para o código-fonte aponta para um arquivo, não para uma pasta.\nCaminho: {}\nEsperado: uma pasta de repositório Git contendo .git.",
+            source.display()
+        );
+    }
     if source.is_dir() && source.join(".git").exists() {
         if dev_mode {
             on_output("system", &format!("Sincronizando com origin/{}: a versão remota será a fonte da verdade.", def.branch));
@@ -296,7 +302,16 @@ where F: FnMut(&str, &str) {
                 on_output("system", "A pasta source não contém um repositório Git válido. Removendo-a para reconstruir a cópia DEV...");
                 fs::remove_dir_all(source).with_context(|| format!("Não foi possível remover a pasta source inválida: {}", source.display()))?;
             } else if fs::read_dir(source)?.next().is_some() {
-                bail!("A pasta de destino existe e não está vazia: {}", source.display());
+                let entries = fs::read_dir(source)?
+                    .filter_map(|entry| entry.ok())
+                    .take(20)
+                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                bail!(
+                    "A pasta registrada para o código-fonte existe, mas não contém um repositório Git válido.\nCaminho: {}\nDiretório .git: ausente\nItens encontrados: {}\nO Shared não apagou nem sobrescreveu esses arquivos. Verifique o caminho registrado ou mova o conteúdo antes de tentar novamente.",
+                    source.display(), if entries.is_empty() { "(não foi possível listar)".to_owned() } else { entries }
+                );
             }
         }
         clone_source(def, source, on_output)?;
