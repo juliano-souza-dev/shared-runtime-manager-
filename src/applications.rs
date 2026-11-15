@@ -8,8 +8,10 @@ use std::{
     fs,
     io::Read,
     path::{Path, PathBuf},
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
+    process::{Command, Stdio},
+    sync::mpsc,
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -296,18 +298,136 @@ where F: FnMut(&str, &str) {
 }
 
 fn git_command_output<F>(args: &[&str], cwd: &Path, stage: &str, on_output: &mut F) -> Result<()>
-where F: FnMut(&str, &str) {
+where
+    F: FnMut(&str, &str),
+{
+    const GIT_TIMEOUT: Duration = Duration::from_secs(180);
+    const MAX_CAPTURED_OUTPUT: usize = 1024 * 1024;
+
     let display_command = format!("git {}", args.join(" "));
-    let command_args = args.iter().map(|arg| OsString::from(*arg)).collect::<Vec<_>>();
-    pty_process_output(
-        OsStr::new("git"),
-        &command_args,
-        cwd,
-        stage,
-        &display_command,
-        on_output,
-        true,
-    )
+    on_output("system", &format!("{stage}: iniciando execução direta do Git"));
+
+    let mut child = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "Never")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!(
+            "{stage}: não foi possível iniciar o Git.\\nComando: {display_command}\\nDiretório: {}",
+            cwd.display()
+        ))?;
+
+    let stdout = child.stdout.take().context("Não foi possível capturar stdout do Git.")?;
+    let stderr = child.stderr.take().context("Não foi possível capturar stderr do Git.")?;
+    let (sender, receiver) = mpsc::channel::<(&'static str, Vec<u8>)>();
+
+    let stdout_sender = sender.clone();
+    let stdout_reader = thread::spawn(move || {
+        let mut reader = stdout;
+        let mut buffer = [0u8; 8192];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(size) => {
+                    if stdout_sender.send(("stdout", buffer[..size].to_vec())).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let stderr_reader = thread::spawn(move || {
+        let mut reader = stderr;
+        let mut buffer = [0u8; 8192];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(size) => {
+                    if sender.send(("stderr", buffer[..size].to_vec())).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let started = Instant::now();
+    let mut captured = String::new();
+    let mut timed_out = false;
+
+    loop {
+        match receiver.recv_timeout(Duration::from_millis(100)) {
+            Ok((stream, bytes)) => {
+                let output = String::from_utf8_lossy(&bytes);
+                on_output(stream, output.trim_end_matches(['\\r', '\\n']));
+                captured.push_str(&output);
+                if captured.len() > MAX_CAPTURED_OUTPUT {
+                    let excess = captured.len() - MAX_CAPTURED_OUTPUT;
+                    captured.drain(..excess);
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {}
+        }
+
+        if let Some(status) = child.try_wait().with_context(|| format!(
+            "{stage}: falha ao consultar o processo Git.\\nComando: {display_command}"
+        ))? {
+            // Drain any output already buffered by the reader threads before reporting.
+            while let Ok((stream, bytes)) = receiver.try_recv() {
+                let output = String::from_utf8_lossy(&bytes);
+                on_output(stream, output.trim_end_matches(['\\r', '\\n']));
+                captured.push_str(&output);
+                if captured.len() > MAX_CAPTURED_OUTPUT {
+                    let excess = captured.len() - MAX_CAPTURED_OUTPUT;
+                    captured.drain(..excess);
+                }
+            }
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+
+            if !status.success() {
+                bail!(
+                    "{stage} falhou.\\nComando: {display_command}\\nDiretório: {}\\nCódigo de saída: {status}\\n\\nÚltima saída capturada:\\n{}",
+                    cwd.display(),
+                    if captured.trim().is_empty() { "O Git não forneceu saída.".to_owned() } else { captured }
+                );
+            }
+            return Ok(());
+        }
+
+        if started.elapsed() >= GIT_TIMEOUT {
+            timed_out = true;
+            let _ = child.kill();
+            let _ = child.wait();
+            break;
+        }
+    }
+
+    if timed_out {
+        // Killing Git closes its pipes; readers can now finish and release their threads.
+        let _ = stdout_reader.join();
+        let _ = stderr_reader.join();
+        while let Ok((stream, bytes)) = receiver.try_recv() {
+            let output = String::from_utf8_lossy(&bytes);
+            on_output(stream, output.trim_end_matches(['\\r', '\\n']));
+            captured.push_str(&output);
+        }
+        bail!(
+            "{stage}: o Git excedeu o limite de 180 segundos e foi encerrado.\\nComando: {display_command}\\nDiretório: {}\\nÚltima saída capturada:\\n{}\\nVerifique a conexão com o GitHub e tente novamente.",
+            cwd.display(),
+            if captured.trim().is_empty() { "Nenhuma saída recebida.".to_owned() } else { captured }
+        );
+    }
+
+    Ok(())
 }
 
 fn clone_source<F>(def: &Definition, source: &Path, on_output: &mut F) -> Result<()>
