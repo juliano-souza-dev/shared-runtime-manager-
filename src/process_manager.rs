@@ -88,7 +88,16 @@ pub fn start_dev(app: AppHandle, app_id: String, name: String, cwd: PathBuf, com
         command_builder.arg(&bash).arg("--noprofile").arg("--norc").arg("-lc").arg(format!("exec {command}"));
         command_builder
     };
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    let mut process_command = {
+        // Git Bash resolves npm to npm.cmd on Windows. Replacing Bash with a
+        // .cmd shim via the exec builtin can fail before npm is launched.
+        // Keep Bash as the parent and let it execute/wait for the Windows shim.
+        let mut command_builder = Command::new(&bash);
+        command_builder.arg("--noprofile").arg("--norc").arg("-lc").arg(&command);
+        command_builder
+    };
+    #[cfg(all(not(target_os = "linux"), not(windows)))]
     let mut process_command = {
         let mut command_builder = Command::new(&bash);
         command_builder.arg("--noprofile").arg("--norc").arg("-lc").arg(format!("exec {command}"));
