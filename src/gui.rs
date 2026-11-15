@@ -78,6 +78,9 @@ fn open_ecosystem_application(app: tauri::AppHandle, app_id: String) -> Result<s
         .into_iter().find(|item| item.id == app_id)
         .ok_or_else(|| format!("Aplicativo '{app_id}' não encontrado no catálogo."))?;
     if entry.mode.as_deref() == Some("dev") {
+        if let Some(process) = process_manager::list().map_err(error_text)?.into_iter().find(|item| item.app_id == app_id) {
+            return serde_json::to_value(process).map_err(error_text);
+        }
         let (cwd, name, command) = applications::dev_spec(&app_id).map_err(error_text)?;
         let process = process_manager::start_dev(app, app_id, name, cwd, command).map_err(error_text)?;
         serde_json::to_value(process).map_err(error_text)
