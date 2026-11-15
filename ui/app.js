@@ -114,7 +114,7 @@ function renderMonitor(){
   const process=monitoredProcesses.find(p=>p.appId===app.id);
   const lines=terminalLines[app.id]||[];
   const output=lines.map(line=>'<span class="terminal-line '+esc(line.stream)+'">'+esc(line.line)+'</span>').join("");
-  return '<article class="panel monitor-card"><div class="monitor-card-head"><div><h3>'+esc(app.name)+'</h3><small>'+esc(app.id)+' · '+esc(app.source_path||"")+'</small></div><span class="processing-badge '+(process?'running':'idle')+'">'+(process?'DEV ativo · PID '+process.pid:'Parado')+'</span></div><div class="terminal-window"><div class="terminal-title"><span></span><span></span><span></span><b>'+esc(app.id)+' / bash</b></div><div class="terminal-output" data-terminal-output="'+esc(app.id)+'" tabindex="0" title="Clique aqui e digite diretamente no terminal">'+(output||'<span class="terminal-placeholder">Terminal PTY aguardando entrada. Clique nesta área e digite um comando.</span>')+'</div><textarea class="terminal-input-capture" data-terminal-input="'+esc(app.id)+'" aria-label="Entrada do terminal '+esc(app.name)+'" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea></div><div class="monitor-actions">'+(process?'<button class="small-btn danger" data-stop-process="'+esc(app.id)+'">■ Encerrar processo</button>':'<button class="primary" data-start-process="'+esc(app.id)+'">▶ Iniciar em DEV</button>')+'<button class="small-btn" data-clear-terminal="'+esc(app.id)+'">Limpar console</button></div><form class="terminal-command" data-terminal-form="'+esc(app.id)+'"><span>$</span><input name="command" autocomplete="off" spellcheck="false" placeholder="Digite um comando Bash..."><button class="small-btn">Executar</button></form></article>';
+  return '<article class="panel monitor-card"><div class="monitor-card-head"><div><h3>'+esc(app.name)+'</h3><small>'+esc(app.id)+' · '+esc(app.source_path||"")+'</small></div><span class="processing-badge '+(process?'running':'idle')+'">'+(process?'DEV ativo · PID '+process.pid:'Parado')+'</span></div><div class="terminal-window"><div class="terminal-title"><span></span><span></span><span></span><b>'+esc(app.id)+' / bash</b></div><div class="terminal-output" data-terminal-output="'+esc(app.id)+'" tabindex="0" title="Clique aqui e digite diretamente no terminal">'+(output||'<span class="terminal-placeholder">Terminal PTY aguardando entrada. Clique nesta área e digite um comando.</span>')+'</div><textarea class="terminal-input-capture" data-terminal-input="'+esc(app.id)+'" aria-label="Entrada do terminal '+esc(app.name)+'" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea></div><div class="monitor-actions">'+(process?'<button class="small-btn danger" data-stop-process="'+esc(app.id)+'">■ Encerrar processo</button>':'<button class="primary" data-start-process="'+esc(app.id)+'">▶ Iniciar em DEV</button>')+'<button class="small-btn" data-restart-terminal="'+esc(app.id)+'">↻ Reiniciar terminal</button><button class="small-btn" data-clear-terminal="'+esc(app.id)+'">Limpar console</button></div><form class="terminal-command" data-terminal-form="'+esc(app.id)+'"><span>$</span><input name="command" autocomplete="off" spellcheck="false" placeholder="Digite um comando Bash..."><button class="small-btn">Executar</button></form></article>';
  }).join("");
  for(const observer of terminalResizeObservers.values())observer.disconnect();
  terminalResizeObservers.clear();
@@ -135,11 +135,15 @@ function renderMonitor(){
 $("monitor-list").addEventListener("click",async e=>{
  const terminalOutput=e.target.closest("[data-terminal-output]");
  if(terminalOutput){const input=$("monitor-list").querySelector('[data-terminal-input="'+CSS.escape(terminalOutput.dataset.terminalOutput)+'"]');input?.focus();return}
- const start=e.target.closest("[data-start-process]"),stop=e.target.closest("[data-stop-process]"),clear=e.target.closest("[data-clear-terminal]");
+ const start=e.target.closest("[data-start-process]"),stop=e.target.closest("[data-stop-process]"),restartTerminal=e.target.closest("[data-restart-terminal]"),clear=e.target.closest("[data-clear-terminal]");
  if(clear){terminalLines[clear.dataset.clearTerminal]=[];renderMonitor();return}
- const button=start||stop;if(!button)return;button.disabled=true;
- try{if(start){await invoke("open_ecosystem_application",{appId:start.dataset.startProcess});note("Processo DEV iniciado pelo Bash.")}else{await invoke("stop_application_process",{appId:stop.dataset.stopProcess});note("Processo encerrado.")}await refreshMonitor()}
- catch(error){note(String(error),true)}finally{button.disabled=false}
+ const button=start||stop||restartTerminal;if(!button)return;button.disabled=true;
+ try{
+  if(restartTerminal){const id=restartTerminal.dataset.restartTerminal;await invoke("stop_application_terminal",{appId:id});terminalStarted.delete(id);await invoke("start_application_terminal",{appId:id});terminalStarted.add(id);note("Terminal interativo reiniciado.")}
+  else if(start){await invoke("open_ecosystem_application",{appId:start.dataset.startProcess});note("Processo DEV iniciado no terminal PTY.")}
+  else{await invoke("stop_application_process",{appId:stop.dataset.stopProcess});note("Processo encerrado.")}
+  await refreshMonitor();
+ }catch(error){note(String(error),true)}finally{button.disabled=false}
 });
 $("monitor-list").addEventListener("input",async e=>{
  const input=e.target.closest("[data-terminal-input]");if(!input||!input.value)return;
