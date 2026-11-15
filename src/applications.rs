@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use portable_pty::{native_pty_system, CommandBuilder, PtySize, PtySystem};
+use portable_pty::{native_pty_system, CommandBuilder, PtySize, PtySystem, SlavePty};
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
