@@ -366,7 +366,7 @@ where
         match receiver.recv_timeout(Duration::from_millis(100)) {
             Ok((stream, bytes)) => {
                 let output = String::from_utf8_lossy(&bytes);
-                on_output(stream, output.trim_end_matches(['\\r', '\n']));
+                on_output(stream, output.trim());
                 captured.push_str(&output);
                 if captured.len() > MAX_CAPTURED_OUTPUT {
                     let excess = captured.len() - MAX_CAPTURED_OUTPUT;
@@ -383,7 +383,7 @@ where
             // Drain any output already buffered by the reader threads before reporting.
             while let Ok((stream, bytes)) = receiver.try_recv() {
                 let output = String::from_utf8_lossy(&bytes);
-                on_output(stream, output.trim_end_matches(['\\r', '\n']));
+                on_output(stream, output.trim());
                 captured.push_str(&output);
                 if captured.len() > MAX_CAPTURED_OUTPUT {
                     let excess = captured.len() - MAX_CAPTURED_OUTPUT;
@@ -417,7 +417,7 @@ where
         let _ = stderr_reader.join();
         while let Ok((stream, bytes)) = receiver.try_recv() {
             let output = String::from_utf8_lossy(&bytes);
-            on_output(stream, output.trim_end_matches(['\\r', '\n']));
+            on_output(stream, output.trim());
             captured.push_str(&output);
         }
         bail!(
