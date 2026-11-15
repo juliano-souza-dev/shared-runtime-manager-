@@ -19,6 +19,8 @@ pub struct ProcessInfo {
     pub pid: u32,
     pub started_at: u64,
     pub status: String,
+    pub exit_code: Option<u32>,
+    pub exit_signal: Option<String>,
 }
 
 struct ManagedProcess {
@@ -118,6 +120,8 @@ pub fn start_dev(app: AppHandle, app_id: String, name: String, cwd: PathBuf, com
         pid,
         started_at: now(),
         status: "running".to_owned(),
+        exit_code: None,
+        exit_signal: None,
     };
 
     let output_app = app.clone();
@@ -150,6 +154,8 @@ pub fn list() -> Result<Vec<ProcessInfo>> {
     for (id, process) in registry.iter_mut() {
         if let Some(status) = process.child.try_wait()? {
             process.info.status = if status.success() { "stopped" } else { "error" }.to_owned();
+            process.info.exit_code = Some(status.exit_code());
+            process.info.exit_signal = status.signal().map(str::to_owned);
             finished.push(id.clone());
         }
         result.push(process.info.clone());
