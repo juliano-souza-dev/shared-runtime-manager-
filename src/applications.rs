@@ -320,7 +320,7 @@ pub fn open(app_id: &str) -> Result<()> {
         let def = definition(app_id)?;
         let source = PathBuf::from(&app.source_path);
         let workdir = source.join(def.frontend_dir);
-        return launch_dev(def, &workdir, &source);
+        bail!("Aplicativos DEV devem ser iniciados pelo Monitor de Aplicações do Shared Runtime Manager.");
     }
     let executable = app.launch_path.as_ref().map(PathBuf::from)
         .ok_or_else(|| anyhow!("O executável de '{app_id}' não está registrado."))?;
