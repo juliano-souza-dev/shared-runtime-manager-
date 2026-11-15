@@ -259,7 +259,20 @@ fn build_application(def: &Definition, source: &Path, workdir: &Path) -> Result<
     Ok(exe)
 }
 
-pub fn dev_spec(app_id: &str) -> Result<(PathBuf, String, String)> {\n    let def = definition(app_id)?;\n    let root = super::manager::root()?;\n    let source = root.join("applications").join(def.id).join("source");\n    let workdir = source.join(def.frontend_dir);\n    let command = if def.id == "nova-generator" {\n        "npm run tauri --workspace @nova-generator/desktop -- dev".to_owned()\n    } else {\n        "npm run tauri dev".to_owned()\n    };\n    Ok((workdir, def.name.to_owned(), command))\n}\n\npub fn install(app_id: &str, mode: &str) -> Result<()> {
+pub fn dev_spec(app_id: &str) -> Result<(PathBuf, String, String)> {
+    let def = definition(app_id)?;
+    let root = super::manager::root()?;
+    let source = root.join("applications").join(def.id).join("source");
+    let workdir = source.join(def.frontend_dir);
+    let command = if def.id == "nova-generator" {
+        "npm run tauri --workspace @nova-generator/desktop -- dev".to_owned()
+    } else {
+        "npm run tauri dev".to_owned()
+    };
+    Ok((workdir, def.name.to_owned(), command))
+}
+
+pub fn install(app_id: &str, mode: &str) -> Result<()> {
     if !matches!(mode, "dev" | "executable") {
         bail!("Modo inválido. Use 'dev' ou 'executable'.");
     }
@@ -317,9 +330,6 @@ pub fn open(app_id: &str) -> Result<()> {
     let app = registry.applications.get(app_id)
         .ok_or_else(|| anyhow!("O aplicativo '{app_id}' ainda não foi instalado pela central."))?;
     if app.mode == "dev" {
-        let def = definition(app_id)?;
-        let source = PathBuf::from(&app.source_path);
-        let workdir = source.join(def.frontend_dir);
         bail!("Aplicativos DEV devem ser iniciados pelo Monitor de Aplicações do Shared Runtime Manager.");
     }
     let executable = app.launch_path.as_ref().map(PathBuf::from)
