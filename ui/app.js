@@ -1,6 +1,7 @@
 const invoke=window.__TAURI__?.core?.invoke,$=id=>document.getElementById(id);
 let state={applications:[],resources:[],providers:[],root:"",catalog:[],ecosystem:[],voices:{default_voice_id:null,voices:[]}};
 let processingStatus={status:"idle",progress:0,current:"Nenhuma operação executada",results:[]};
+let processingLogs=[];
 let lastVoiceProcessingStatus="";
 let monitoredProcesses=[];
 let terminalLines={};
@@ -41,7 +42,19 @@ function renderProcessing(status){
  const history=p.history||[];
  $("processing-history").innerHTML=history.length?history.map(item=>'<div class="queue-result"><span class="queue-dot '+(item.status==="completed"?"success":"failed")+'"></span><div><strong>'+esc(item.taskType==="voice-profile"?"Criação de perfil de voz":item.resourceId||item.application||"Fila de dependências")+'</strong><small>'+esc(item.current||item.status)+' · '+(item.finishedAt?new Date(item.finishedAt*1000).toLocaleString():"")+'</small></div><b>'+ (item.status==="completed"?"Concluído":item.status==="cancelled"?"Cancelado":"Falha")+'</b></div>').join(""):empty("As operações concluídas, canceladas ou com falha aparecerão aqui.");
 }
-async function refreshProcessing(){if(!invoke)return;try{const next=await invoke("dependency_queue_status");renderProcessing(next);if(next.taskType==="voice-profile"&&["completed","error"].includes(next.status)&&lastVoiceProcessingStatus!==next.status){lastVoiceProcessingStatus=next.status;if(next.status==="completed"){state.voices=await invoke("voice_library");renderVoices();note("Perfil de voz pronto e disponível na biblioteca.")}}else if(next.taskType==="voice-profile"&&next.status==="running"){lastVoiceProcessingStatus="running"}}catch(e){console.error("Não foi possível atualizar a Central de Processamentos:",e)}}
+function renderProcessingLogs(logs){
+ processingLogs=Array.isArray(logs)?logs:[];
+ const count=$("processing-logs-count"),list=$("processing-logs");
+ if(!count||!list)return;
+ count.textContent=processingLogs.length+" registro(s)";
+ count.className="processing-badge "+(processingLogs.length?"failed":"idle");
+ list.innerHTML=processingLogs.length?processingLogs.map(log=>{
+  const date=log.timestamp?new Date(log.timestamp*1000).toLocaleString():"Data não informada";
+  const report=[log.title||"Falha de processamento",date,"Tipo: "+(log.taskType||"não informado"),"",log.detail||"Sem detalhes."].join("\\n");
+  return '<article class="failure-log"><div class="failure-log-head"><div><strong>'+esc(log.title||"Falha de processamento")+'</strong><small>'+esc(date)+' · '+esc(log.taskType||"processamento")+'</small></div><button class="small-btn" data-copy-log="'+esc(log.id)+'">▣ Copiar log</button></div><details><summary>Ver relatório completo</summary><pre>'+esc(log.detail||"Sem detalhes.")+'</pre></details><textarea class="log-copy-source" data-log-report="'+esc(log.id)+'" hidden>'+esc(report)+'</textarea></article>';
+ }).join(""):empty("Nenhuma falha registrada. Quando um processamento falhar, o relatório técnico aparecerá aqui.");
+}
+async function refreshProcessing(){if(!invoke)return;try{const [next,logs]=await Promise.all([invoke("dependency_queue_status"),invoke("processing_logs")]);renderProcessing(next);renderProcessingLogs(logs);if(next.taskType==="voice-profile"&&["completed","error"].includes(next.status)&&lastVoiceProcessingStatus!==next.status){lastVoiceProcessingStatus=next.status;if(next.status==="completed"){state.voices=await invoke("voice_library");renderVoices();note("Perfil de voz pronto e disponível na biblioteca.")}}else if(next.taskType==="voice-profile"&&next.status==="running"){lastVoiceProcessingStatus="running"}}catch(e){console.error("Não foi possível atualizar a Central de Processamentos:",e)}}
 function appendTerminalLine(payload){
  const id=payload.appId;if(!id)return;
  terminalLines[id]=terminalLines[id]||[];
@@ -119,6 +132,19 @@ function render(){
 
  document.querySelectorAll("[data-install-resource]").forEach(button=>{const installed=state.resources.some(resource=>resource.id===button.dataset.installResource);button.disabled=installed||["queued","installing","running","cancelling"].includes(processingStatus.status);if(["qwen3-tts","qwen3-tts-base-clone"].includes(button.dataset.installResource))button.hidden=installed;});
 }
+$("processing-logs").addEventListener("click",async e=>{
+ const button=e.target.closest("[data-copy-log]");if(!button)return;
+ const source=$("processing-logs").querySelector('[data-log-report="'+CSS.escape(button.dataset.copyLog)+'"]');
+ if(!source)return;
+ try{
+  await navigator.clipboard.writeText(source.value);
+  note("Log completo copiado para a área de transferência.");
+ }catch(error){
+  const temporary=document.createElement("textarea");temporary.value=source.value;document.body.appendChild(temporary);temporary.select();
+  const copied=document.execCommand("copy");temporary.remove();
+  if(copied)note("Log completo copiado para a área de transferência.");else note("Não foi possível copiar o log: "+String(error),true);
+ }
+});
 $("processing-current").addEventListener("click",async e=>{
  const cancel=e.target.closest("[data-cancel-processing]");
  const restart=e.target.closest("[data-restart-processing]");
