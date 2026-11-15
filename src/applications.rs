@@ -240,7 +240,7 @@ where
         }
     }
     if !pending.is_empty() {
-        on_output("stdout", pending.trim_end_matches('\r'));
+        on_output("pty", pending.trim_end_matches('\r'));
     }
     let status = child.wait().with_context(|| format!(
         "{stage}: não foi possível aguardar o processo do terminal PTY.\nComando: {display_command}\nDiretório: {}",
@@ -290,7 +290,7 @@ where F: FnMut(&str, &str) {
 fn git_command_output<F>(args: &[&str], cwd: &Path, stage: &str, on_output: &mut F) -> Result<()>
 where F: FnMut(&str, &str) {
     let display_command = format!("git {}", args.join(" "));
-    let command_args = args.iter().map(OsString::from).collect::<Vec<_>>();
+    let command_args = args.iter().map(|arg| OsString::from(*arg)).collect::<Vec<_>>();
     pty_process_output(
         OsStr::new("git"),
         &command_args,
