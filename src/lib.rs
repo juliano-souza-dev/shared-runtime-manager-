@@ -4,4 +4,4 @@ pub mod manager;
 pub mod voices;
 pub mod dependency_queue;
 pub mod applications;
-pub mod process_manager;
+#[cfg(feature = "desktop")]\npub mod process_manager;\npub mod shell;
