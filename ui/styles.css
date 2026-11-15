@@ -73,3 +73,11 @@
 .failure-log details summary{font-size:11px}
 .failure-log pre{max-height:560px;font-size:11px;line-height:1.7}
 @media(max-width:760px){.logs-toolbar{grid-template-columns:1fr}.logs-toolbar .processing-badge{justify-self:start}}
+
+
+.terminal-window{position:relative}
+.terminal-output{cursor:text;min-height:250px;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
+.terminal-output:focus{outline:1px solid #7186ed;outline-offset:-2px}
+.terminal-line{white-space:pre-wrap}
+.terminal-input-capture{position:absolute!important;left:10px;bottom:8px;width:1px!important;height:1px!important;min-width:1px;padding:0!important;border:0!important;opacity:.01;pointer-events:none;resize:none}
+.terminal-window:focus-within .terminal-title b:after{content:" · INTERATIVO";color:#9de0b9}
