@@ -81,3 +81,7 @@
 .terminal-line{white-space:pre-wrap}
 .terminal-input-capture{position:absolute!important;left:10px;bottom:8px;width:1px!important;height:1px!important;min-width:1px;padding:0!important;border:0!important;opacity:.01;pointer-events:none;resize:none}
 .terminal-window:focus-within .terminal-title b:after{content:" · INTERATIVO";color:#9de0b9}
+
+.processing-terminal-panel{margin:0 0 14px}
+.processing-terminal-output{height:300px;max-height:42vh;background:#080d14}
+.processing-terminal-output .terminal-line{white-space:pre-wrap}
