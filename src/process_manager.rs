@@ -195,3 +195,17 @@ pub fn run_command(app: AppHandle, app_id: String, cwd: PathBuf, command: String
     session.stdin.flush().context("Não foi possível atualizar a entrada do Bash.")?;
     Ok(())
 }
+
+pub fn stop_all(app: AppHandle) {
+    let ids = processes().lock().map(|registry| registry.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
+    for id in ids {
+        let _ = stop(app.clone(), &id);
+    }
+    if let Ok(mut sessions) = shells().lock() {
+        for (id, mut session) in std::mem::take(&mut *sessions) {
+            let _ = session.child.kill();
+            let _ = session.child.wait();
+            emit_line(&app, &id, "system", "Sessão Bash encerrada com o Shared Runtime Manager.".to_owned());
+        }
+    }
+}
