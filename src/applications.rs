@@ -189,7 +189,7 @@ where F: FnMut(&str, &str) {
         .arg("--noprofile").arg("--norc").arg("-lc").arg(command)
         .current_dir(cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().with_context(|| format!(
-            "{stage}: não foi possível iniciar o processo pelo Bash.\\nComando: {display_command}\\nDiretório: {}",
+            "{stage}: não foi possível iniciar o processo pelo Bash.\nComando: {display_command}\nDiretório: {}",
             cwd.display()
         ))?;
     let (sender, receiver) = mpsc::channel::<(&'static str, String)>();
@@ -206,15 +206,15 @@ where F: FnMut(&str, &str) {
     for (stream, line) in receiver {
         on_output(stream, &line);
         let number = if stream == "stdout" { stdout_line += 1; stdout_line } else { stderr_line += 1; stderr_line };
-        captured.push_str(&format!("[{stream}:{number:04}] {line}\\n"));
+        captured.push_str(&format!("[{stream}:{number:04}] {line}\n"));
     }
     let status = child.wait().with_context(|| format!(
-        "{stage}: não foi possível aguardar o processo.\\nComando: {display_command}\\nDiretório: {}",
+        "{stage}: não foi possível aguardar o processo.\nComando: {display_command}\nDiretório: {}",
         cwd.display()
     ))?;
     if !status.success() {
         bail!(
-            "{stage} falhou.\\nComando: {display_command}\\nDiretório: {}\\nCódigo de saída: {:?}\\n\\nSaída completa do processo (linhas numeradas):\\n{}",
+            "{stage} falhou.\nComando: {display_command}\nDiretório: {}\nCódigo de saída: {:?}\n\nSaída completa do processo (linhas numeradas):\n{}",
             cwd.display(), status.code(), if captured.trim().is_empty() { "O processo não forneceu saída em stdout ou stderr." } else { captured.trim() }
         );
     }
