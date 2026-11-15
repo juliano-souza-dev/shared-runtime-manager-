@@ -273,7 +273,7 @@ pub fn run_command(app: AppHandle, app_id: String, cwd: PathBuf, command: String
         start_terminal(app, app_id, cwd)?;
         return Ok(());
     }
-    start_terminal(app, app_id.clone(), cwd)?;
+    start_terminal(app.clone(), app_id.clone(), cwd)?;
     emit_line(&app, &app_id, "command", format!("$ {command}"));
     write_terminal(&app_id, &format!("{command}\r"))
 }
