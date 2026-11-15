@@ -274,7 +274,8 @@ where F: FnMut(&str, &str) {
         ("npm", vec!["run", "tauri", "build"])
     };
     command_output(program, &args, if def.id == "nova-generator" { source } else { workdir }, "build Tauri", on_output)?;
-    let exe = source.join("apps/desktop/src-tauri/target/release").join(format!("{}.exe", def.cargo_package));
+    let executable_name = if cfg!(windows) { format!("{}.exe", def.cargo_package) } else { def.cargo_package.to_owned() };
+    let exe = source.join("apps/desktop/src-tauri/target/release").join(executable_name);
     if !exe.is_file() {
         bail!("O build terminou, mas o executável esperado não foi encontrado: {}", exe.display());
     }
@@ -321,7 +322,8 @@ where F: FnMut(&str, &str) {
         let built = build_application(def, &source, &workdir, &mut on_output)?;
         let install_dir = root.join("applications").join(def.id).join("installed");
         fs::create_dir_all(&install_dir)?;
-        let destination = install_dir.join(format!("{}.exe", def.cargo_package));
+        let executable_name = if cfg!(windows) { format!("{}.exe", def.cargo_package) } else { def.cargo_package.to_owned() };
+        let destination = install_dir.join(executable_name);
         fs::copy(&built, &destination)
             .with_context(|| format!("Não foi possível instalar o executável em {}", destination.display()))?;
         Some(destination)
