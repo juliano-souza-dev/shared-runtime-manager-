@@ -169,7 +169,7 @@ fn write_status(status: &str, current: &str, app_id: &str, progress: u8, result:
 }
 
 fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\\'', "'\\''"))
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn command_output(program: &str, args: &[&str], cwd: &Path, stage: &str) -> Result<()> {
