@@ -21,7 +21,7 @@ function delay(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
 
 function showQueueResults(status){const box=$("queue-results"),list=$("queue-result-list");box.classList.remove("hidden");const results=status.results||[];list.innerHTML=results.map(r=>'<div class="queue-result"><span class="queue-dot '+(r.status==="installed"?"success":"failed")+'"></span><div><strong>'+esc(r.id)+'</strong><small>'+(r.status==="installed"?"Instalado ou já disponível":esc(r.message||"Falha na instalação"))+'</small></div><b>'+(r.status==="installed"?"Concluído":"Erro")+'</b></div>').join("")||empty("Nenhuma dependência processada.");}
 function appOpts(){return state.applications.map(a=>'<option value="'+esc(a.id)+'">'+esc(a.name)+' ('+esc(a.id)+')</option>').join("")}
-async function load(){if(!invoke){note("Abra o Shared Runtime Manager pelo executável desktop.",true);return}try{const [dashboard,catalog,voices,ecosystem]=await Promise.all([invoke("dashboard_data"),invoke("provider_catalog"),invoke("voice_library"),invoke("applications_catalog")]);state={...dashboard,catalog:catalog.providers||[],voices,ecosystem};render();await refreshProcessing();await refreshMonitor();setupTerminalListener()}catch(e){note(String(e),true)}}
+async function load(){if(!invoke){note("Abra o Shared Runtime Manager pelo executável desktop.",true);return}try{const [dashboard,catalog,voices,ecosystem]=await Promise.all([invoke("dashboard_data"),invoke("provider_catalog"),invoke("voice_library"),invoke("applications_catalog")]);state={...dashboard,catalog:catalog.providers||[],voices,ecosystem};render();await refreshProcessing();await setupTerminalListener();await refreshMonitor()}catch(e){note(String(e),true)}}
 function renderProcessing(status){
  if(status)processingStatus=status;
  const p=processingStatus||{};
@@ -90,7 +90,7 @@ function appendTerminalLine(payload){
  terminalLines[id].push({stream:payload.stream||"stdout",line:payload.line||"",timestamp:payload.timestamp||0});
  if(terminalLines[id].length>500)terminalLines[id].splice(0,terminalLines[id].length-500);
  const output=document.querySelector('[data-terminal-output="'+CSS.escape(id)+'"]');
- if(output){const nearBottom=output.scrollHeight-output.scrollTop-output.clientHeight<32;output.insertAdjacentHTML("beforeend",'<div class="terminal-line '+esc(payload.stream||"stdout")+'">'+esc(payload.line||"")+'</div>');if(nearBottom)output.scrollTop=output.scrollHeight}
+ if(output){const nearBottom=output.scrollHeight-output.scrollTop-output.clientHeight<32;output.insertAdjacentHTML("beforeend",'<span class="terminal-line '+esc(payload.stream||"stdout")+'">'+esc(payload.line||"")+'</span>');if(nearBottom)output.scrollTop=output.scrollHeight}
 }
 async function setupTerminalListener(){
  if(terminalListenerReady||!window.__TAURI__?.event?.listen)return;
