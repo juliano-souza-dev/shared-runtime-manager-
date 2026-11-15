@@ -8,6 +8,7 @@ let monitoredProcesses=[];
 let terminalLines={};
 let terminalListenerReady=false;
 const terminalStarted=new Set();
+const terminalResizeObservers=new Map();
 const titles={overview:"Visão geral",ecosystem:"Ecossistema de aplicativos",apps:"Aplicativos registrados",apis:"Provedores de API",resources:"Biblioteca de dependências",voices:"Biblioteca de vozes",processing:"Central de processamentos",logs:"Logs de falhas",monitor:"Monitor de aplicações"};
 function note(message,error=false){const n=$("notice");n.textContent=message;n.classList.remove("hidden","error");if(error)n.classList.add("error");clearTimeout(note.timer);note.timer=setTimeout(()=>n.classList.add("hidden"),6500)}
 async function act(command,args={},message){try{await invoke(command,args);if(message)note(message);await load()}catch(e){note(String(e),true);throw e}}
@@ -115,8 +116,21 @@ function renderMonitor(){
   const output=lines.map(line=>'<span class="terminal-line '+esc(line.stream)+'">'+esc(line.line)+'</span>').join("");
   return '<article class="panel monitor-card"><div class="monitor-card-head"><div><h3>'+esc(app.name)+'</h3><small>'+esc(app.id)+' · '+esc(app.source_path||"")+'</small></div><span class="processing-badge '+(process?'running':'idle')+'">'+(process?'DEV ativo · PID '+process.pid:'Parado')+'</span></div><div class="terminal-window"><div class="terminal-title"><span></span><span></span><span></span><b>'+esc(app.id)+' / bash</b></div><div class="terminal-output" data-terminal-output="'+esc(app.id)+'" tabindex="0" title="Clique aqui e digite diretamente no terminal">'+(output||'<span class="terminal-placeholder">Terminal PTY aguardando entrada. Clique nesta área e digite um comando.</span>')+'</div><textarea class="terminal-input-capture" data-terminal-input="'+esc(app.id)+'" aria-label="Entrada do terminal '+esc(app.name)+'" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea></div><div class="monitor-actions">'+(process?'<button class="small-btn danger" data-stop-process="'+esc(app.id)+'">■ Encerrar processo</button>':'<button class="primary" data-start-process="'+esc(app.id)+'">▶ Iniciar em DEV</button>')+'<button class="small-btn" data-clear-terminal="'+esc(app.id)+'">Limpar console</button></div><form class="terminal-command" data-terminal-form="'+esc(app.id)+'"><span>$</span><input name="command" autocomplete="off" spellcheck="false" placeholder="Digite um comando Bash..."><button class="small-btn">Executar</button></form></article>';
  }).join("");
+ for(const observer of terminalResizeObservers.values())observer.disconnect();
+ terminalResizeObservers.clear();
  list.innerHTML=cards||empty("Nenhum aplicativo instalado em modo DEV. Instale um aplicativo pelo Ecossistema para gerenciá-lo aqui.");
- list.querySelectorAll("[data-terminal-output]").forEach(output=>{if(Object.prototype.hasOwnProperty.call(previousScroll,output.dataset.terminalOutput))output.scrollTop=previousScroll[output.dataset.terminalOutput]});
+ list.querySelectorAll("[data-terminal-output]").forEach(output=>{
+  const id=output.dataset.terminalOutput;
+  if(Object.prototype.hasOwnProperty.call(previousScroll,id))output.scrollTop=previousScroll[id];
+  if(window.ResizeObserver){
+   const observer=new ResizeObserver(()=>{
+    const cols=Math.max(30,Math.min(220,Math.floor(output.clientWidth/7.3)));
+    const rows=Math.max(8,Math.min(60,Math.floor(output.clientHeight/17)));
+    invoke("resize_application_terminal",{appId:id,cols,rows}).catch(error=>console.debug("PTY resize",error));
+   });
+   observer.observe(output);terminalResizeObservers.set(id,observer);
+  }
+ });
 }
 $("monitor-list").addEventListener("click",async e=>{
  const terminalOutput=e.target.closest("[data-terminal-output]");
