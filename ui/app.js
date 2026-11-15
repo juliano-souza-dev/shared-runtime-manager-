@@ -57,7 +57,7 @@ async function setupTerminalListener(){
 }
 async function refreshMonitor(){
  if(!invoke)return;
- try{monitoredProcesses=await invoke("application_processes");renderMonitor()}catch(error){note("Não foi possível consultar os processos: "+String(error),true)}
+ try{const [processes,catalog]=await Promise.all([invoke("application_processes"),invoke("applications_catalog")]);monitoredProcesses=processes;state.ecosystem=catalog;renderMonitor()}catch(error){note("Não foi possível consultar os processos: "+String(error),true)}
 }
 function renderMonitor(){
  const list=$("monitor-list");if(!list)return;
