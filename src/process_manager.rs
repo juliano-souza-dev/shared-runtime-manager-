@@ -82,9 +82,19 @@ pub fn start_dev(app: AppHandle, app_id: String, name: String, cwd: PathBuf, com
         registry.remove(&app_id);
     }
 
-    let mut child = Command::new(bash)
-        .arg("--noprofile").arg("--norc").arg("-lc")
-        .arg(format!("exec {command}"))
+    #[cfg(target_os = "linux")]
+    let mut process_command = {
+        let mut command_builder = Command::new("setsid");
+        command_builder.arg(&bash).arg("--noprofile").arg("--norc").arg("-lc").arg(format!("exec {command}"));
+        command_builder
+    };
+    #[cfg(not(target_os = "linux"))]
+    let mut process_command = {
+        let mut command_builder = Command::new(&bash);
+        command_builder.arg("--noprofile").arg("--norc").arg("-lc").arg(format!("exec {command}"));
+        command_builder
+    };
+    let mut child = process_command
         .current_dir(&cwd)
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn()
@@ -132,7 +142,13 @@ pub fn stop(app: AppHandle, app_id: &str) -> Result<()> {
         let _ = Command::new("taskkill").args(["/PID", &pid, "/T", "/F"])
             .stdout(Stdio::null()).stderr(Stdio::null()).status();
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        let process_group = format!("-{}", process.info.pid);
+        let _ = Command::new("kill").args(["-TERM", "--", &process_group])
+            .stdout(Stdio::null()).stderr(Stdio::null()).status();
+    }
+    #[cfg(all(unix, not(target_os = "linux")))]
     {
         let pid = process.info.pid.to_string();
         let _ = Command::new("pkill").args(["-TERM", "-P", &pid])
