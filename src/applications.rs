@@ -233,10 +233,18 @@ where
         let chunk = String::from_utf8_lossy(&buffer[..size]);
         captured.push_str(&chunk);
         pending.push_str(&chunk);
-        while let Some(position) = pending.find('\n') {
-            let line = pending[..position].trim_end_matches('\r').to_owned();
+        // Git and other CLI tools often refresh progress with carriage returns
+        // instead of newline characters. Emit both so the UI receives live updates.
+        while let Some(position) = pending.find(|character| character == '\n' || character == '\r') {
+            let line = pending[..position].to_owned();
+            let delimiter = pending.as_bytes()[position];
             pending.drain(..=position);
-            on_output("pty", &line);
+            if delimiter == b'\r' && pending.starts_with('\n') {
+                pending.drain(..1);
+            }
+            if !line.is_empty() {
+                on_output("pty", &line);
+            }
         }
     }
     if !pending.is_empty() {
@@ -305,8 +313,9 @@ where F: FnMut(&str, &str) {
 fn clone_source<F>(def: &Definition, source: &Path, on_output: &mut F) -> Result<()>
 where F: FnMut(&str, &str) {
     if let Some(parent) = source.parent() { fs::create_dir_all(parent)?; }
+    write_status("installing", "Git: clonando o repositório do aplicativo", def.id, 6, None)?;
     git_command_output(
-        &["clone", "--branch", def.branch, "--depth", "1", def.repository, source.to_string_lossy().as_ref()],
+        &["clone", "--progress", "--branch", def.branch, "--depth", "1", def.repository, source.to_string_lossy().as_ref()],
         source.parent().unwrap_or(source), "Git Clone", on_output,
     )
 }
@@ -322,9 +331,13 @@ where F: FnMut(&str, &str) {
     if source.is_dir() && source.join(".git").exists() {
         if dev_mode {
             on_output("system", &format!("Sincronizando com origin/{}: a versão remota será a fonte da verdade.", def.branch));
-            git_command_output(&["fetch", "--prune", "origin", &format!("+refs/heads/{0}:refs/remotes/origin/{0}", def.branch)], source, "Git Fetch", on_output)?;
+            write_status("installing", "Git: buscando atualizações do repositório (fetch)", def.id, 6, None)?;
+            git_command_output(&["fetch", "--progress", "--prune", "origin", &format!("+refs/heads/{0}:refs/remotes/origin/{0}", def.branch)], source, "Git Fetch", on_output)?;
+            write_status("installing", "Git: posicionando a branch local na versão remota", def.id, 10, None)?;
             git_command_output(&["checkout", "-B", def.branch, &format!("origin/{}", def.branch)], source, "Git Checkout forçado", on_output)?;
+            write_status("installing", "Git: sincronizando arquivos com origin", def.id, 13, None)?;
             git_command_output(&["reset", "--hard", &format!("origin/{}", def.branch)], source, "Git Reset --hard", on_output)?;
+            write_status("installing", "Git: removendo arquivos não rastreados", def.id, 16, None)?;
             git_command_output(&["clean", "-fdx"], source, "Git Clean", on_output)?;
         } else {
             let source_text = source.to_string_lossy().into_owned();
