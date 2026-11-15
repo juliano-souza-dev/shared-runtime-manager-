@@ -4,7 +4,7 @@ use std::{
     collections::BTreeMap,
     io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -22,7 +22,8 @@ pub struct ProcessInfo {
 }
 
 struct ManagedProcess {
-    child: Child,
+    child: Box<dyn PtyChild + Send + Sync>,
+    _master: Box<dyn MasterPty + Send>,
     info: ProcessInfo,
 }
 
@@ -106,48 +107,57 @@ pub fn start_dev(app: AppHandle, app_id: String, name: String, cwd: PathBuf, com
         registry.remove(&app_id);
     }
 
-    #[cfg(target_os = "linux")]
-    let mut process_command = {
-        let mut command_builder = Command::new("setsid");
-        command_builder.arg(&bash).arg("--noprofile").arg("--norc").arg("-lc").arg(format!("exec {command}"));
-        command_builder
-    };
+    let pty_system = native_pty_system();
+    let pair = pty_system.openpty(PtySize {
+        rows: 32,
+        cols: 120,
+        pixel_width: 0,
+        pixel_height: 0,
+    }).context("Não foi possível criar o terminal PTY para iniciar a aplicação.")?;
+    let mut process_command = CommandBuilder::new(bash);
+    process_command.args(["--noprofile", "--norc", "-lc"]);
     #[cfg(windows)]
-    let mut process_command = {
-        // Git Bash resolves npm to npm.cmd on Windows. Replacing Bash with a
-        // .cmd shim via the exec builtin can fail before npm is launched.
-        // Keep Bash as the parent and let it execute/wait for the Windows shim.
-        let mut command_builder = Command::new(&bash);
-        command_builder.arg("--noprofile").arg("--norc").arg("-lc").arg(&command);
-        command_builder
-    };
-    #[cfg(all(not(target_os = "linux"), not(windows)))]
-    let mut process_command = {
-        let mut command_builder = Command::new(&bash);
-        command_builder.arg("--noprofile").arg("--norc").arg("-lc").arg(format!("exec {command}"));
-        command_builder
-    };
-    let mut child = process_command
-        .current_dir(&cwd)
-        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn()
-        .with_context(|| format!("Não foi possível iniciar o Bash para {name}."))?;
+    process_command.arg(&command);
+    #[cfg(not(windows))]
+    process_command.arg(format!("exec {command}"));
+    process_command.cwd(cwd.clone());
+    process_command.env("TERM", "xterm-256color");
 
+    let child = pair.slave.spawn_command(process_command)
+        .with_context(|| format!("Não foi possível iniciar {name} dentro do terminal PTY em {}.", cwd.display()))?;
+    drop(pair.slave);
+    let mut reader = pair.master.try_clone_reader()
+        .context("Não foi possível capturar a saída do terminal da aplicação.")?;
+    let master = pair.master;
+    let pid = child.process_id().unwrap_or_default();
     let info = ProcessInfo {
         app_id: app_id.clone(),
         name,
-        pid: child.id(),
+        pid,
         started_at: now(),
         status: "running".to_owned(),
     };
-    if let Some(stdout) = child.stdout.take() {
-        stream_output(app.clone(), app_id.clone(), "stdout", stdout);
-    }
-    if let Some(stderr) = child.stderr.take() {
-        stream_output(app.clone(), app_id.clone(), "stderr", stderr);
-    }
-    emit_line(&app, &app_id, "system", format!("Iniciado via Bash · PID {}", info.pid));
-    registry.insert(app_id, ManagedProcess { child, info: info.clone() });
+
+    let output_app = app.clone();
+    let output_id = app_id.clone();
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 4096];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(size) => emit_line(&output_app, &output_id, "stdout", String::from_utf8_lossy(&buffer[..size]).into_owned()),
+                Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe || error.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                Err(error) => {
+                    emit_line(&output_app, &output_id, "system", format!("Falha ao ler o terminal da aplicação: {error}"));
+                    break;
+                }
+            }
+        }
+        emit_line(&output_app, &output_id, "system", "Saída do processo DEV encerrada.".to_owned());
+    });
+
+    emit_line(&app, &app_id, "system", format!("Aplicação iniciada em terminal PTY · PID {pid} · {}", cwd.display()));
+    registry.insert(app_id, ManagedProcess { child, _master: master, info: info.clone() });
     Ok(info)
 }
 
