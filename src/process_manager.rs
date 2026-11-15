@@ -2,9 +2,9 @@ use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use std::{
     collections::BTreeMap,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Write},
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::{Child, ChildStdin, Command, Stdio},
     sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -25,13 +25,24 @@ struct ManagedProcess {
     info: ProcessInfo,
 }
 
+struct ShellSession {
+    child: Child,
+    stdin: ChildStdin,
+}
+
 static PROCESSES: OnceLock<Mutex<BTreeMap<String, ManagedProcess>>> = OnceLock::new();
+static SHELLS: OnceLock<Mutex<BTreeMap<String, ShellSession>>> = OnceLock::new();
 
 fn processes() -> &'static Mutex<BTreeMap<String, ManagedProcess>> {
     PROCESSES.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
+fn shells() -> &'static Mutex<BTreeMap<String, ShellSession>> {
+    SHELLS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
 pub use crate::shell::bash_path;
+
 fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
@@ -72,14 +83,10 @@ pub fn start_dev(app: AppHandle, app_id: String, name: String, cwd: PathBuf, com
     }
 
     let mut child = Command::new(bash)
-        .arg("--noprofile")
-        .arg("--norc")
-        .arg("-lc")
+        .arg("--noprofile").arg("--norc").arg("-lc")
         .arg(format!("exec {command}"))
         .current_dir(&cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn()
         .with_context(|| format!("Não foi possível iniciar o Bash para {name}."))?;
 
@@ -121,7 +128,15 @@ pub fn stop(app: AppHandle, app_id: &str) -> Result<()> {
     let process = registry.get_mut(app_id).ok_or_else(|| anyhow!("Não há processo ativo para {app_id}."))?;
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill").args(["/PID", &process.info.pid.to_string(), "/T", "/F"]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        let pid = process.info.pid.to_string();
+        let _ = Command::new("taskkill").args(["/PID", &pid, "/T", "/F"])
+            .stdout(Stdio::null()).stderr(Stdio::null()).status();
+    }
+    #[cfg(not(windows))]
+    {
+        let pid = process.info.pid.to_string();
+        let _ = Command::new("pkill").args(["-TERM", "-P", &pid])
+            .stdout(Stdio::null()).stderr(Stdio::null()).status();
     }
     let _ = process.child.kill();
     let _ = process.child.wait();
@@ -134,18 +149,33 @@ pub fn run_command(app: AppHandle, app_id: String, cwd: PathBuf, command: String
     if command.trim().is_empty() { return Ok(()); }
     let bash = bash_path()?;
     emit_line(&app, &app_id, "command", format!("$ {}", command));
-    let mut child = Command::new(bash)
-        .arg("--noprofile").arg("--norc").arg("-lc").arg(command)
-        .current_dir(cwd)
-        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().context("Não foi possível executar o comando no Bash.")?;
-    if let Some(stdout) = child.stdout.take() { stream_output(app.clone(), app_id.clone(), "stdout", stdout); }
-    if let Some(stderr) = child.stderr.take() { stream_output(app.clone(), app_id.clone(), "stderr", stderr); }
-    std::thread::spawn(move || {
-        match child.wait() {
-            Ok(status) => emit_line(&app, &app_id, "system", format!("Comando finalizado · código {}", status.code().unwrap_or(-1))),
-            Err(error) => emit_line(&app, &app_id, "system", format!("Falha ao aguardar comando: {error}")),
+    let mut sessions = shells().lock().map_err(|_| anyhow!("O registro dos consoles Bash está indisponível."))?;
+    let finished = if let Some(session) = sessions.get_mut(&app_id) {
+        session.child.try_wait()?.is_some()
+    } else { false };
+    if finished { sessions.remove(&app_id); }
+
+    if !sessions.contains_key(&app_id) {
+        let mut child = Command::new(bash)
+            .arg("--noprofile").arg("--norc")
+            .current_dir(cwd)
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+            .spawn().context("Não foi possível iniciar a sessão Bash integrada.")?;
+        let stdin = child.stdin.take().ok_or_else(|| anyhow!("Não foi possível abrir a entrada do Bash."))?;
+        if let Some(stdout) = child.stdout.take() {
+            stream_output(app.clone(), app_id.clone(), "stdout", stdout);
         }
-    });
+        if let Some(stderr) = child.stderr.take() {
+            stream_output(app.clone(), app_id.clone(), "stderr", stderr);
+        }
+        emit_line(&app, &app_id, "system", format!("Sessão Bash persistente iniciada · PID {}", child.id()));
+        sessions.insert(app_id.clone(), ShellSession { child, stdin });
+    }
+
+    let session = sessions.get_mut(&app_id).expect("Bash session was initialized");
+    writeln!(session.stdin, "{command}").context("Não foi possível enviar o comando ao Bash.")?;
+    writeln!(session.stdin, "__srm_status=$?; printf '\\n[exit %s]\\n' \"$__srm_status\"")
+        .context("Não foi possível registrar o código de saída do comando.")?;
+    session.stdin.flush().context("Não foi possível atualizar a entrada do Bash.")?;
     Ok(())
 }
