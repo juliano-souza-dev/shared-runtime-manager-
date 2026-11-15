@@ -184,6 +184,33 @@ fn stop_application_process(app: tauri::AppHandle, app_id: String) -> Result<(),
     ))
 }
 #[tauri::command]
+fn start_application_terminal(app: tauri::AppHandle, app_id: String) -> Result<u32, String> {
+    let (cwd, _, _) = applications::dev_spec(&app_id).map_err(|error| record_processing_error(
+        "terminal-start", &format!("Falha ao preparar terminal de {app_id}"), error
+    ))?;
+    process_manager::start_terminal(app, app_id.clone(), cwd).map_err(|error| record_processing_error(
+        "terminal-start", &format!("Falha ao iniciar terminal interativo de {app_id}"), error
+    ))
+}
+#[tauri::command]
+fn write_application_terminal(app_id: String, data: String) -> Result<(), String> {
+    process_manager::write_terminal(&app_id, &data).map_err(|error| record_processing_error(
+        "integrated-terminal", &format!("Falha ao enviar entrada ao terminal de {app_id}"), error
+    ))
+}
+#[tauri::command]
+fn resize_application_terminal(app_id: String, cols: u16, rows: u16) -> Result<(), String> {
+    process_manager::resize_terminal(&app_id, cols, rows).map_err(|error| record_processing_error(
+        "integrated-terminal", &format!("Falha ao redimensionar terminal de {app_id}"), error
+    ))
+}
+#[tauri::command]
+fn stop_application_terminal(app: tauri::AppHandle, app_id: String) -> Result<(), String> {
+    process_manager::stop_terminal(app, &app_id).map_err(|error| record_processing_error(
+        "terminal-stop", &format!("Falha ao encerrar terminal de {app_id}"), error
+    ))
+}
+#[tauri::command]
 fn run_application_shell_command(app: tauri::AppHandle, app_id: String, command: String) -> Result<(), String> {
     let title = format!("Falha ao enviar comando ao terminal integrado ({app_id})");
     let result = (|| -> Result<(), String> {
@@ -469,7 +496,7 @@ fn save_api_key(provider: String, secret: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            dashboard_data, applications_catalog, install_ecosystem_application, open_ecosystem_application, application_processes, stop_application_process, run_application_shell_command, register_application, delete_application, synchronize_application, delete_shared_dependency,
+            dashboard_data, applications_catalog, install_ecosystem_application, open_ecosystem_application, application_processes, stop_application_process, run_application_shell_command, start_application_terminal, write_application_terminal, resize_application_terminal, stop_application_terminal, register_application, delete_application, synchronize_application, delete_shared_dependency,
             start_dependency_queue, dependency_queue_status, processing_logs, install_shared_resource, cancel_processing, restart_processing,
             provider_catalog, available_api_models, save_api_provider, authorize_api,
             revoke_api, save_api_key, voice_library, create_voice_profile, set_default_voice, preview_voice
