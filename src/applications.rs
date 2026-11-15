@@ -266,7 +266,7 @@ where F: FnMut(&str, &str) {
     if source.join(".git").is_dir() {
         if dev_mode {
             on_output("system", &format!("Sincronizando com origin/{}: a versão remota será a fonte da verdade.", def.branch));
-            git_command_output(&["fetch", "--prune", "origin", def.branch], source, "Git Fetch", on_output)?;
+            git_command_output(&["fetch", "--prune", "origin", &format!("+refs/heads/{0}:refs/remotes/origin/{0}", def.branch)], source, "Git Fetch", on_output)?;
             git_command_output(&["checkout", "-B", def.branch, &format!("origin/{}", def.branch)], source, "Git Checkout forçado", on_output)?;
             git_command_output(&["reset", "--hard", &format!("origin/{}", def.branch)], source, "Git Reset --hard", on_output)?;
             git_command_output(&["clean", "-fdx"], source, "Git Clean", on_output)?;
