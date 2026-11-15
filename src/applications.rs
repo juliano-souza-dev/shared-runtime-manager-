@@ -6,6 +6,7 @@ use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
     fs,
+    io::Read,
     path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
