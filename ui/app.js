@@ -6,6 +6,7 @@ let lastVoiceProcessingStatus="";
 let monitoredProcesses=[];
 let terminalLines={};
 let terminalListenerReady=false;
+const terminalStarted=new Set();
 const titles={overview:"Visão geral",ecosystem:"Ecossistema de aplicativos",apps:"Aplicativos registrados",apis:"Provedores de API",resources:"Biblioteca de dependências",voices:"Biblioteca de vozes",processing:"Central de processamentos",logs:"Logs de falhas",monitor:"Monitor de aplicações"};
 function note(message,error=false){const n=$("notice");n.textContent=message;n.classList.remove("hidden","error");if(error)n.classList.add("error");clearTimeout(note.timer);note.timer=setTimeout(()=>n.classList.add("hidden"),6500)}
 async function act(command,args={},message){try{await invoke(command,args);if(message)note(message);await load()}catch(e){note(String(e),true);throw e}}
@@ -92,7 +93,9 @@ async function setupTerminalListener(){
 }
 async function refreshMonitor(){
  if(!invoke)return;
- try{const [processes,catalog]=await Promise.all([invoke("application_processes"),invoke("applications_catalog")]);monitoredProcesses=processes;state.ecosystem=catalog;if(!document.activeElement?.closest("[data-terminal-form]"))renderMonitor();else{const count=$("monitor-nav-count");if(count){count.textContent=monitoredProcesses.length;count.classList.toggle("hidden",!monitoredProcesses.length)}}}catch(error){note("Não foi possível consultar os processos: "+String(error),true)}
+ try{const [processes,catalog]=await Promise.all([invoke("application_processes"),invoke("applications_catalog")]);monitoredProcesses=processes;state.ecosystem=catalog;
+  for(const app of catalog.filter(item=>item.installed&&item.mode==="dev")){if(!terminalStarted.has(app.id)){try{await invoke("start_application_terminal",{appId:app.id});terminalStarted.add(app.id)}catch(error){console.error("Falha ao iniciar terminal PTY de "+app.id,error)}}}
+  if(!document.activeElement?.closest("[data-terminal-form]")&&!document.activeElement?.closest("[data-terminal-input]"))renderMonitor();else{const count=$("monitor-nav-count");if(count){count.textContent=monitoredProcesses.length;count.classList.toggle("hidden",!monitoredProcesses.length)}}}catch(error){note("Não foi possível consultar os processos: "+String(error),true)}
 }
 function renderMonitor(){
  const list=$("monitor-list");if(!list)return;
@@ -104,18 +107,36 @@ function renderMonitor(){
  const cards=available.map(app=>{
   const process=monitoredProcesses.find(p=>p.appId===app.id);
   const lines=terminalLines[app.id]||[];
-  const output=lines.map(line=>'<div class="terminal-line '+esc(line.stream)+'">'+esc(line.line)+'</div>').join("");
-  return '<article class="panel monitor-card"><div class="monitor-card-head"><div><h3>'+esc(app.name)+'</h3><small>'+esc(app.id)+' · '+esc(app.source_path||"")+'</small></div><span class="processing-badge '+(process?'running':'idle')+'">'+(process?'DEV ativo · PID '+process.pid:'Parado')+'</span></div><div class="terminal-window"><div class="terminal-title"><span></span><span></span><span></span><b>'+esc(app.id)+' / bash</b></div><div class="terminal-output" data-terminal-output="'+esc(app.id)+'">'+(output||'<div class="terminal-placeholder">A saída do Bash aparecerá aqui quando a aplicação for iniciada.</div>')+'</div></div><div class="monitor-actions">'+(process?'<button class="small-btn danger" data-stop-process="'+esc(app.id)+'">■ Encerrar processo</button>':'<button class="primary" data-start-process="'+esc(app.id)+'">▶ Iniciar em DEV</button>')+'<button class="small-btn" data-clear-terminal="'+esc(app.id)+'">Limpar console</button></div><form class="terminal-command" data-terminal-form="'+esc(app.id)+'"><span>$</span><input name="command" autocomplete="off" spellcheck="false" placeholder="Digite um comando Bash..."><button class="small-btn">Executar</button></form></article>';
+  const output=lines.map(line=>'<span class="terminal-line '+esc(line.stream)+'">'+esc(line.line)+'</span>').join("");
+  return '<article class="panel monitor-card"><div class="monitor-card-head"><div><h3>'+esc(app.name)+'</h3><small>'+esc(app.id)+' · '+esc(app.source_path||"")+'</small></div><span class="processing-badge '+(process?'running':'idle')+'">'+(process?'DEV ativo · PID '+process.pid:'Parado')+'</span></div><div class="terminal-window"><div class="terminal-title"><span></span><span></span><span></span><b>'+esc(app.id)+' / bash</b></div><div class="terminal-output" data-terminal-output="'+esc(app.id)+'" tabindex="0" title="Clique aqui e digite diretamente no terminal">'+(output||'<span class="terminal-placeholder">Terminal PTY aguardando entrada. Clique nesta área e digite um comando.</span>')+'</div><textarea class="terminal-input-capture" data-terminal-input="'+esc(app.id)+'" aria-label="Entrada do terminal '+esc(app.name)+'" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea></div><div class="monitor-actions">'+(process?'<button class="small-btn danger" data-stop-process="'+esc(app.id)+'">■ Encerrar processo</button>':'<button class="primary" data-start-process="'+esc(app.id)+'">▶ Iniciar em DEV</button>')+'<button class="small-btn" data-clear-terminal="'+esc(app.id)+'">Limpar console</button></div><form class="terminal-command" data-terminal-form="'+esc(app.id)+'"><span>$</span><input name="command" autocomplete="off" spellcheck="false" placeholder="Digite um comando Bash..."><button class="small-btn">Executar</button></form></article>';
  }).join("");
  list.innerHTML=cards||empty("Nenhum aplicativo instalado em modo DEV. Instale um aplicativo pelo Ecossistema para gerenciá-lo aqui.");
  list.querySelectorAll("[data-terminal-output]").forEach(output=>{if(Object.prototype.hasOwnProperty.call(previousScroll,output.dataset.terminalOutput))output.scrollTop=previousScroll[output.dataset.terminalOutput]});
 }
 $("monitor-list").addEventListener("click",async e=>{
+ const terminalOutput=e.target.closest("[data-terminal-output]");
+ if(terminalOutput){const input=$("monitor-list").querySelector('[data-terminal-input="'+CSS.escape(terminalOutput.dataset.terminalOutput)+'"]');input?.focus();return}
  const start=e.target.closest("[data-start-process]"),stop=e.target.closest("[data-stop-process]"),clear=e.target.closest("[data-clear-terminal]");
  if(clear){terminalLines[clear.dataset.clearTerminal]=[];renderMonitor();return}
  const button=start||stop;if(!button)return;button.disabled=true;
  try{if(start){await invoke("open_ecosystem_application",{appId:start.dataset.startProcess});note("Processo DEV iniciado pelo Bash.")}else{await invoke("stop_application_process",{appId:stop.dataset.stopProcess});note("Processo encerrado.")}await refreshMonitor()}
  catch(error){note(String(error),true)}finally{button.disabled=false}
+});
+$("monitor-list").addEventListener("input",async e=>{
+ const input=e.target.closest("[data-terminal-input]");if(!input||!input.value)return;
+ const data=input.value;input.value="";
+ try{await invoke("write_application_terminal",{appId:input.dataset.terminalInput,data})}
+ catch(error){note("Falha na entrada do terminal: "+String(error),true)}
+});
+$("monitor-list").addEventListener("keydown",async e=>{
+ const input=e.target.closest("[data-terminal-input]");if(!input)return;
+ const keys={Enter:"\\r",Backspace:"\\x7f",Tab:"\\t",ArrowUp:"\\x1b[A",ArrowDown:"\\x1b[B",ArrowRight:"\\x1b[C",ArrowLeft:"\\x1b[D",Home:"\\x1b[H",End:"\\x1b[F",Delete:"\\x1b[3~"};
+ let data=keys[e.key];
+ if(e.ctrlKey&&e.key.toLowerCase()==="c")data="\\x03";
+ else if(e.ctrlKey&&e.key.toLowerCase()==="d")data="\\x04";
+ else if(e.ctrlKey&&e.key.toLowerCase()==="z")data="\\x1a";
+ else if(e.ctrlKey&&e.key.toLowerCase()==="l")data="\\x0c";
+ if(data!==undefined){e.preventDefault();try{await invoke("write_application_terminal",{appId:input.dataset.terminalInput,data})}catch(error){note("Falha na entrada do terminal: "+String(error),true)}}
 });
 $("monitor-list").addEventListener("submit",async e=>{
  const form=e.target.closest("[data-terminal-form]");if(!form)return;e.preventDefault();
