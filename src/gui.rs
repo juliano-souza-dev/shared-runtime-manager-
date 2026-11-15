@@ -71,9 +71,18 @@ fn install_ecosystem_application(app: tauri::AppHandle, app_id: String, mode: St
     Ok(())
 }
 #[tauri::command]
-fn open_ecosystem_application(app: tauri::AppHandle, app_id: String) -> Result<process_manager::ProcessInfo, String> {
-    let (cwd, name, command) = applications::dev_spec(&app_id).map_err(error_text)?;
-    process_manager::start_dev(app, app_id, name, cwd, command).map_err(error_text)
+fn open_ecosystem_application(app: tauri::AppHandle, app_id: String) -> Result<serde_json::Value, String> {
+    let entry = applications::catalog().map_err(error_text)?
+        .into_iter().find(|item| item.id == app_id)
+        .ok_or_else(|| format!("Aplicativo '{app_id}' não encontrado no catálogo."))?;
+    if entry.mode.as_deref() == Some("dev") {
+        let (cwd, name, command) = applications::dev_spec(&app_id).map_err(error_text)?;
+        let process = process_manager::start_dev(app, app_id, name, cwd, command).map_err(error_text)?;
+        serde_json::to_value(process).map_err(error_text)
+    } else {
+        applications::open(&app_id).map_err(error_text)?;
+        Ok(serde_json::json!({"status":"launched","mode":"executable"}))
+    }
 }
 #[tauri::command]
 fn application_processes() -> Result<Vec<process_manager::ProcessInfo>, String> {
