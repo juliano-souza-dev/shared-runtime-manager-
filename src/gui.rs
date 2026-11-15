@@ -20,7 +20,7 @@ fn append_processing_log(task_type: &str, title: &str, detail: &str) -> Result<(
     fs::create_dir_all(&registry).map_err(error_text)?;
     let path = registry.join("processing-logs.json");
     let mut logs: Vec<serde_json::Value> = if path.is_file() {
-        serde_json::from_slice(&fs::read(&path).map_err(error_text)?).unwrap_or_default()
+        serde_json::from_slice(&fs::read(&path).map_err(error_text)?).map_err(error_text)?
     } else { Vec::new() };
     let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default().as_secs();
