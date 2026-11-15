@@ -211,16 +211,31 @@ where F: FnMut(&str, &str) {
     Ok(())
 }
 
-fn ensure_source<F>(def: &Definition, source: &Path, on_output: &mut F) -> Result<()>
+fn clone_source<F>(def: &Definition, source: &Path, on_output: &mut F) -> Result<()>
+where F: FnMut(&str, &str) {
+    if let Some(parent) = source.parent() { fs::create_dir_all(parent)?; }
+    command_output("git", &["clone", "--branch", def.branch, "--depth", "1", def.repository, source.to_string_lossy().as_ref()], source.parent().unwrap_or(source), "Git Clone", on_output)
+}
+
+fn ensure_source<F>(def: &Definition, source: &Path, recreate_on_update_failure: bool, on_output: &mut F) -> Result<()>
 where F: FnMut(&str, &str) {
     if source.join(".git").is_dir() {
-        command_output("git", &["-C", source.to_string_lossy().as_ref(), "pull", "--ff-only", "origin", def.branch], source.parent().unwrap_or(source), "atualização do repositório", on_output)?;
+        let update = command_output("git", &["-C", source.to_string_lossy().as_ref(), "pull", "--ff-only", "origin", def.branch], source.parent().unwrap_or(source), "atualização do repositório", on_output);
+        if let Err(error) = update {
+            if !recreate_on_update_failure {
+                return Err(error);
+            }
+            on_output("system", "A atualização falhou. Como o aplicativo está em modo DEV, removendo a pasta source para fazer um clone limpo...");
+            fs::remove_dir_all(source)
+                .with_context(|| format!("Não foi possível remover a pasta source após falha na atualização: {}", source.display()))?;
+            clone_source(def, source, on_output)
+                .context("A atualização falhou e o clone limpo do repositório também não pôde ser concluído.")?;
+        }
     } else {
         if source.exists() && fs::read_dir(source)?.next().is_some() {
             bail!("A pasta de destino existe e não está vazia: {}", source.display());
         }
-        if let Some(parent) = source.parent() { fs::create_dir_all(parent)?; }
-        command_output("git", &["clone", "--branch", def.branch, "--depth", "1", def.repository, source.to_string_lossy().as_ref()], source.parent().unwrap_or(source), "Git Clone", on_output)?;
+        clone_source(def, source, on_output)?;
     }
     Ok(())
 }
@@ -310,7 +325,7 @@ where F: FnMut(&str, &str) {
     fs::create_dir_all(source.parent().expect("source has parent"))?;
     write_status("installing", &format!("Obtendo código-fonte de {}", def.name), def.id, 5, None)?;
     on_output("system", "Obtendo código-fonte pelo Bash...");
-    ensure_source(def, &source, &mut on_output)?;
+    ensure_source(def, &source, mode == "dev", &mut on_output)?;
     write_status("running", "Lendo shared.config.example.json e preparando o Shared Runtime", def.id, 20, None)?;
     on_output("system", "Preparando configurações e dependências compartilhadas...");
     let shared_app_id = prepare_shared(def, &source)?;
