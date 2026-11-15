@@ -184,10 +184,14 @@ where F: FnMut(&str, &str) {
         .map(shell_quote)
         .collect::<Vec<_>>()
         .join(" ");
+    let display_command = format!("{program} {}", args.join(" "));
     let mut child = Command::new(bash)
         .arg("--noprofile").arg("--norc").arg("-lc").arg(command)
         .current_dir(cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().with_context(|| format!("Não foi possível iniciar {stage} pelo Bash."))?;
+        .spawn().with_context(|| format!(
+            "{stage}: não foi possível iniciar o processo pelo Bash.\\nComando: {display_command}\\nDiretório: {}",
+            cwd.display()
+        ))?;
     let (sender, receiver) = mpsc::channel::<(&'static str, String)>();
     if let Some(stdout) = child.stdout.take() {
         let tx = sender.clone();
@@ -198,15 +202,21 @@ where F: FnMut(&str, &str) {
         thread::spawn(move || for line in BufReader::new(stderr).lines().flatten() { let _ = tx.send(("stderr", line)); });
     }
     drop(sender);
-    let mut captured = String::new();
+    let (mut captured, mut stdout_line, mut stderr_line) = (String::new(), 0usize, 0usize);
     for (stream, line) in receiver {
         on_output(stream, &line);
-        captured.push_str(&line);
-        captured.push('\n');
+        let number = if stream == "stdout" { stdout_line += 1; stdout_line } else { stderr_line += 1; stderr_line };
+        captured.push_str(&format!("[{stream}:{number:04}] {line}\\n"));
     }
-    let status = child.wait().with_context(|| format!("Não foi possível aguardar {stage}."))?;
+    let status = child.wait().with_context(|| format!(
+        "{stage}: não foi possível aguardar o processo.\\nComando: {display_command}\\nDiretório: {}",
+        cwd.display()
+    ))?;
     if !status.success() {
-        bail!("{stage} falhou (código {:?}).\n{}", status.code(), captured.trim());
+        bail!(
+            "{stage} falhou.\\nComando: {display_command}\\nDiretório: {}\\nCódigo de saída: {:?}\\n\\nSaída completa do processo (linhas numeradas):\\n{}",
+            cwd.display(), status.code(), if captured.trim().is_empty() { "O processo não forneceu saída em stdout ou stderr." } else { captured.trim() }
+        );
     }
     Ok(())
 }
