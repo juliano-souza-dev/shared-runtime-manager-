@@ -173,9 +173,6 @@ fn write_status(status: &str, current: &str, app_id: &str, progress: u8, result:
     Ok(())
 }
 
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
 
 fn pty_process_output<F>(
     program: &OsStr,
@@ -274,30 +271,28 @@ fn command_output<F>(program: &str, args: &[&str], cwd: &Path, stage: &str, on_o
 where
     F: FnMut(&str, &str),
 {
-    // npm install/build can legitimately take several minutes. Unlike the old PTY
-    // reader, this runner drains stdout and stderr concurrently and keeps checking
-    // the child process, so a quiet output stream cannot freeze the installation UI.
+    // Use the host OS directly. On Windows npm is commonly exposed as npm.cmd,
+    // so cmd.exe resolves it through the native PATH. No Bash, WSL, or VM is needed.
     const COMMAND_TIMEOUT: Duration = Duration::from_secs(30 * 60);
     const MAX_CAPTURED_OUTPUT: usize = 1024 * 1024;
 
-    let bash = super::shell::bash_path()
-        .with_context(|| format!("{stage} exige Bash. Instale Git Bash ou configure SRM_BASH_PATH."))?;
-    let command = std::iter::once(program)
-        .chain(args.iter().copied())
-        .map(shell_quote)
-        .collect::<Vec<_>>()
-        .join(" ");
     let display_command = format!("{program} {}", args.join(" "));
-    let command_args = [
-        OsString::from("--noprofile"),
-        OsString::from("--norc"),
-        OsString::from("-lc"),
-        OsString::from(format!("exec {command}")),
-    ];
+    on_output("system", &format!("{stage}: iniciando processo nativo do sistema"));
 
-    on_output("system", &format!("{stage}: iniciando processo com captura contínua de saída"));
-    let mut child = Command::new(&bash)
-        .args(command_args)
+    #[cfg(windows)]
+    let mut process = {
+        let mut command = Command::new("cmd.exe");
+        command.arg("/D").arg("/C").arg(program).args(args);
+        command
+    };
+    #[cfg(not(windows))]
+    let mut process = {
+        let mut command = Command::new(program);
+        command.args(args);
+        command
+    };
+
+    let mut child = process
         .current_dir(cwd)
         .env("CI", "1")
         .env("npm_config_audit", "false")
@@ -306,7 +301,7 @@ where
         .stderr(Stdio::piped())
         .spawn()
         .with_context(|| format!(
-            "{stage}: não foi possível iniciar o processo.\nComando: {display_command}\nDiretório: {}",
+            "{stage}: não foi possível iniciar o processo nativo.\nComando: {display_command}\nDiretório: {}\nVerifique se Node.js e npm estão instalados e disponíveis no PATH do Windows.",
             cwd.display()
         ))?;
 
@@ -348,7 +343,6 @@ where
 
     let started = Instant::now();
     let mut captured = String::new();
-    let mut timed_out = false;
 
     loop {
         match receiver.recv_timeout(Duration::from_millis(100)) {
@@ -398,35 +392,37 @@ where
         }
 
         if started.elapsed() >= COMMAND_TIMEOUT {
-            timed_out = true;
+            #[cfg(windows)]
+            {
+                // cmd.exe can launch npm.cmd, which in turn launches node.exe.
+                // Terminate the process tree so pipe-reader threads cannot be left waiting.
+                let pid = child.id().to_string();
+                let _ = Command::new("taskkill")
+                    .args(["/PID", pid.as_str(), "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
             let _ = child.kill();
             let _ = child.wait();
-            break;
-        }
-    }
-
-    if timed_out {
-        // "exec" above makes Bash hand its process slot to npm/the requested tool,
-        // so killing this child also closes the inherited pipes.
-        let _ = stdout_reader.join();
-        let _ = stderr_reader.join();
-        while let Ok((stream, bytes)) = receiver.try_recv() {
-            let output = String::from_utf8_lossy(&bytes);
-            for line in output.lines() {
-                if !line.trim().is_empty() {
-                    on_output(stream, line);
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            while let Ok((stream, bytes)) = receiver.try_recv() {
+                let output = String::from_utf8_lossy(&bytes);
+                for line in output.lines() {
+                    if !line.trim().is_empty() {
+                        on_output(stream, line);
+                    }
                 }
+                captured.push_str(&output);
             }
-            captured.push_str(&output);
+            bail!(
+                "{stage}: o processo excedeu o limite de 30 minutos e foi encerrado.\nComando: {display_command}\nDiretório: {}\nÚltima saída capturada:\n{}",
+                cwd.display(),
+                if captured.trim().is_empty() { "Nenhuma saída recebida.".to_owned() } else { captured }
+            );
         }
-        bail!(
-            "{stage}: o processo excedeu o limite de 30 minutos e foi encerrado.\nComando: {display_command}\nDiretório: {}\nÚltima saída capturada:\n{}",
-            cwd.display(),
-            if captured.trim().is_empty() { "Nenhuma saída recebida.".to_owned() } else { captured }
-        );
     }
-
-    Ok(())
 }
 
 fn git_command_output<F>(args: &[&str], cwd: &Path, stage: &str, on_output: &mut F) -> Result<()>
@@ -715,7 +711,7 @@ where F: FnMut(&str, &str) {
     on_output("system", "Preparando configurações e dependências compartilhadas...");
     let shared_app_id = prepare_shared(def, &source)?;
     write_status("running", "Instalando dependências próprias do aplicativo", def.id, 45, None)?;
-    on_output("system", "Instalando dependências Node.js com captura contínua de saída...");
+    on_output("system", "Instalando dependências Node.js pelo Windows...");
     let workdir = install_node_dependencies(def, &source, &mut on_output)?;
 
     let launch_path = if mode == "executable" {
