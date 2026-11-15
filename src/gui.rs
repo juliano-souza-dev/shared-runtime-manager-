@@ -93,7 +93,7 @@ fn applications_catalog() -> Result<Vec<applications::CatalogApplication>, Strin
 #[tauri::command]
 fn install_ecosystem_application(app: tauri::AppHandle, app_id: String, mode: String) -> Result<(), String> {
     if QUEUE_RUNNING.swap(true, Ordering::SeqCst) {
-        return Err("Já existe um processamento em andamento. Aguarde antes de instalar outro aplicativo.".to_owned());
+        return Err(record_processing_error("application-install", &format!("Não foi possível iniciar a instalação de {app_id}"), "Já existe um processamento em andamento. Aguarde antes de instalar outro aplicativo."));
     }
     dependency_queue::begin_operation();
     std::thread::spawn(move || {
@@ -301,7 +301,7 @@ fn write_install_status(
 
 fn spawn_install_shared_resource(resource_id: String, app_id: Option<String>) -> Result<(), String> {
     if QUEUE_RUNNING.swap(true, Ordering::SeqCst) {
-        return Err("Já existe um processamento em andamento. Aguarde antes de iniciar outra instalação.".to_owned());
+        return Err(record_processing_error("shared-resource", &format!("Não foi possível instalar {resource_id}"), "Já existe um processamento em andamento. Aguarde antes de iniciar outra instalação."));
     }
     dependency_queue::begin_operation();
     if let Err(error) = write_install_status("installing", &format!("Preparando instalação de {resource_id}"), &resource_id, app_id.as_deref(), serde_json::json!([])) {
@@ -419,7 +419,7 @@ fn voice_library() -> Result<serde_json::Value, String> {
 #[tauri::command]
 fn create_voice_profile(name: String, filename: String, audio_base64: String, reference_text: String) -> Result<(), String> {
     if QUEUE_RUNNING.swap(true, Ordering::SeqCst) {
-        return Err("Já existe um processamento em andamento. Aguarde antes de preparar outra voz.".to_owned());
+        return Err(record_processing_error("voice-profile", &format!("Não foi possível preparar o perfil {name}"), "Já existe um processamento em andamento. Aguarde antes de preparar outra voz."));
     }
     dependency_queue::begin_operation();
     if let Err(error) = write_voice_processing_status(
