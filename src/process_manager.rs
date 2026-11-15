@@ -222,20 +222,22 @@ pub fn start_terminal(app: AppHandle, app_id: String, cwd: PathBuf) -> Result<u3
     let master = pair.master;
     let pid = child.process_id().unwrap_or_default() as u32;
 
+    let output_app = app.clone();
+    let output_app_id = app_id.clone();
     std::thread::spawn(move || {
         let mut reader = reader;
         let mut buffer = [0u8; 4096];
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => break,
-                Ok(size) => emit_line(&app, &app_id, "pty", String::from_utf8_lossy(&buffer[..size]).into_owned()),
+                Ok(size) => emit_line(&output_app, &output_app_id, "pty", String::from_utf8_lossy(&buffer[..size]).into_owned()),
                 Err(error) => {
-                    emit_line(&app, &app_id, "system", format!("Leitura do terminal encerrada: {error}"));
+                    emit_line(&output_app, &output_app_id, "system", format!("Leitura do terminal encerrada: {error}"));
                     break;
                 }
             }
         }
-        emit_line(&app, &app_id, "system", "Sessão PTY encerrada.".to_owned());
+        emit_line(&output_app, &output_app_id, "system", "Sessão PTY encerrada.".to_owned());
     });
 
     emit_line(&app, &app_id, "system", format!("Terminal Bash interativo iniciado · PTY · PID {pid} · {}", cwd.display()));
