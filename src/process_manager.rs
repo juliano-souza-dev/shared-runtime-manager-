@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use std::{
     collections::BTreeMap,
-    io::{BufRead, BufReader, Read, Write},
+    io::{Read, Write},
     path::PathBuf,
     process::{Command, Stdio},
     sync::{Mutex, OnceLock},
@@ -78,24 +78,6 @@ pub fn emit_line(app: &AppHandle, app_id: &str, stream: &str, line: String) {
     }));
 }
 
-fn stream_output<R: std::io::Read + Send + 'static>(
-    app: AppHandle,
-    app_id: String,
-    stream: &'static str,
-    reader: R,
-) {
-    std::thread::spawn(move || {
-        for line in BufReader::new(reader).lines() {
-            match line {
-                Ok(line) => emit_line(&app, &app_id, stream, line),
-                Err(error) => {
-                    emit_line(&app, &app_id, "system", format!("Falha ao ler saída: {error}"));
-                    break;
-                }
-            }
-        }
-    });
-}
 
 pub fn start_dev(app: AppHandle, app_id: String, name: String, cwd: PathBuf, command: String) -> Result<ProcessInfo> {
     let bash = bash_path()?;
