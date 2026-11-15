@@ -50,3 +50,14 @@
 .terminal-command input{flex:1;min-width:0;border:0;background:transparent;padding:7px 2px;color:#e0e8f5;font:11px ui-monospace,monospace;outline:none}
 .terminal-command input:focus{box-shadow:none}
 @media(max-width:1050px){.monitor-grid{grid-template-columns:1fr}}
+
+.failure-log{border:1px solid #52343d;background:#171820;border-radius:9px;padding:13px 14px;margin-top:9px;min-width:0}
+.failure-log-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.failure-log-head>div{min-width:0;display:grid;gap:5px}
+.failure-log-head strong{font-size:11px;color:#f0b0b6;overflow-wrap:anywhere}
+.failure-log-head small{font-size:9px;color:var(--muted);overflow-wrap:anywhere}
+.failure-log details{margin-top:11px;border-top:1px solid #382b34;padding-top:9px}
+.failure-log summary{font-size:10px;color:#b9c4d7;cursor:pointer;user-select:none}
+.failure-log pre{max-height:440px;overflow:auto;margin:10px 0 0;padding:13px;border-radius:7px;background:#090d14;color:#d3dced;font:10px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4}
+.processing-logs-panel{margin-bottom:12px}
+@media(max-width:760px){.failure-log-head{align-items:flex-start;flex-direction:column}.failure-log-head button{align-self:flex-start}}
