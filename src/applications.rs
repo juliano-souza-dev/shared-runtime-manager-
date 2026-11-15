@@ -241,20 +241,18 @@ where F: FnMut(&str, &str) {
         thread::spawn(move || for line in BufReader::new(stderr).lines().flatten() { let _ = tx.send(("stderr", line)); });
     }
     drop(sender);
-    let (mut stdout_text, mut stderr_text) = (String::new(), String::new());
+    let (mut output_text, mut stdout_line, mut stderr_line) = (String::new(), 0usize, 0usize);
     for (stream, line) in receiver {
         on_output(stream, &line);
-        let target = if stream == "stdout" { &mut stdout_text } else { &mut stderr_text };
-        target.push_str(&line);
-        target.push('\n');
+        let number = if stream == "stdout" { stdout_line += 1; stdout_line } else { stderr_line += 1; stderr_line };
+        output_text.push_str(&format!("[{stream}:{number:04}] {line}\n"));
     }
     let status = child.wait().with_context(|| format!(
         "{stage}: não foi possível aguardar o Git. Comando: {display_command}. Diretório: {}",
         cwd.display()
     ))?;
     if !status.success() {
-        let details = if !stderr_text.trim().is_empty() { stderr_text.trim() }
-            else if !stdout_text.trim().is_empty() { stdout_text.trim() }
+        let details = if !output_text.trim().is_empty() { output_text.trim() }
             else { "O Git encerrou sem fornecer detalhes em stdout ou stderr." };
         bail!("{stage} falhou.\nComando: {display_command}\nDiretório: {}\nCódigo de saída: {:?}\nSaída original do Git:\n{}",
             cwd.display(), status.code(), details);
