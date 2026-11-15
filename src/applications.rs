@@ -4,8 +4,11 @@ use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
     fs,
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    io::{BufRead, BufReader},\n    process::{Command, Stdio},\n    sync::mpsc,\n    thread,
+    process::{Command, Stdio},
+    sync::mpsc,
+    thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -291,7 +294,12 @@ pub fn dev_spec(app_id: &str) -> Result<(PathBuf, String, String)> {
     Ok((workdir, def.name.to_owned(), command))
 }
 
-pub fn install(app_id: &str, mode: &str) -> Result<()> {\n    install_with_output(app_id, mode, |_, _| {})\n}\n\npub fn install_with_output<F>(app_id: &str, mode: &str, mut on_output: F) -> Result<()>\nwhere F: FnMut(&str, &str) {
+pub fn install(app_id: &str, mode: &str) -> Result<()> {
+    install_with_output(app_id, mode, |_, _| {})
+}
+
+pub fn install_with_output<F>(app_id: &str, mode: &str, mut on_output: F) -> Result<()>
+where F: FnMut(&str, &str) {
     if !matches!(mode, "dev" | "executable") {
         bail!("Modo inválido. Use 'dev' ou 'executable'.");
     }
@@ -300,11 +308,14 @@ pub fn install(app_id: &str, mode: &str) -> Result<()> {\n    install_with_outpu
     let source = root.join("applications").join(def.id).join("source");
     fs::create_dir_all(source.parent().expect("source has parent"))?;
     write_status("installing", &format!("Obtendo código-fonte de {}", def.name), def.id, 5, None)?;
-    on_output("system", "Obtendo código-fonte pelo Bash...");\n    ensure_source(def, &source, &mut on_output)?;
+    on_output("system", "Obtendo código-fonte pelo Bash...");
+    ensure_source(def, &source, &mut on_output)?;
     write_status("running", "Lendo shared.config.example.json e preparando o Shared Runtime", def.id, 20, None)?;
+    on_output("system", "Preparando configurações e dependências compartilhadas...");
     let shared_app_id = prepare_shared(def, &source)?;
     write_status("running", "Instalando dependências próprias do aplicativo", def.id, 45, None)?;
-    on_output("system", "Instalando dependências Node.js pelo Bash...");\n    let workdir = install_node_dependencies(def, &source, &mut on_output)?;
+    on_output("system", "Instalando dependências Node.js pelo Bash...");
+    let workdir = install_node_dependencies(def, &source, &mut on_output)?;
 
     let launch_path = if mode == "executable" {
         let built = build_application(def, &source, &workdir, &mut on_output)?;
@@ -336,10 +347,6 @@ pub fn install(app_id: &str, mode: &str) -> Result<()> {\n    install_with_outpu
     write_status("completed", &format!("{} instalado em modo {}", def.name, mode), def.id, 100, Some(json!({
         "id": def.id, "status": "completed", "message": if mode == "dev" { "Projeto clonado, dependências preparadas e configuração Shared gerada." } else { "Projeto compilado e executável instalado na biblioteca central." }
     })))?;
-
-    if mode == "dev" {
-        launch_dev(def, &workdir, &source)?;
-    }
     Ok(())
 }
 
