@@ -2,13 +2,14 @@ use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use std::{
     collections::BTreeMap,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, Command, Stdio},
     sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter};
+use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, MasterPty, PtySize};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,8 +27,9 @@ struct ManagedProcess {
 }
 
 struct ShellSession {
-    child: Child,
-    stdin: ChildStdin,
+    child: Box<dyn PtyChild + Send + Sync>,
+    master: Box<dyn MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
 }
 
 static PROCESSES: OnceLock<Mutex<BTreeMap<String, ManagedProcess>>> = OnceLock::new();
@@ -192,38 +194,98 @@ pub fn stop(app: AppHandle, app_id: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn run_command(app: AppHandle, app_id: String, cwd: PathBuf, command: String) -> Result<()> {
-    if command.trim().is_empty() { return Ok(()); }
+/// Starts a persistent interactive Bash attached to a real pseudo-terminal (PTY).
+pub fn start_terminal(app: AppHandle, app_id: String, cwd: PathBuf) -> Result<u32> {
     let bash = bash_path()?;
-    emit_line(&app, &app_id, "command", format!("$ {}", command));
-    let mut sessions = shells().lock().map_err(|_| anyhow!("O registro dos consoles Bash está indisponível."))?;
-    let finished = if let Some(session) = sessions.get_mut(&app_id) {
-        session.child.try_wait()?.is_some()
-    } else { false };
-    if finished { sessions.remove(&app_id); }
-
-    if !sessions.contains_key(&app_id) {
-        let mut child = Command::new(bash)
-            .arg("--noprofile").arg("--norc")
-            .current_dir(cwd)
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
-            .spawn().context("Não foi possível iniciar a sessão Bash integrada.")?;
-        let stdin = child.stdin.take().ok_or_else(|| anyhow!("Não foi possível abrir a entrada do Bash."))?;
-        if let Some(stdout) = child.stdout.take() {
-            stream_output(app.clone(), app_id.clone(), "stdout", stdout);
+    let mut sessions = shells().lock().map_err(|_| anyhow!("O registro dos terminais está indisponível."))?;
+    if let Some(session) = sessions.get_mut(&app_id) {
+        if session.child.try_wait()?.is_none() {
+            return Ok(session.child.process_id().unwrap_or_default() as u32);
         }
-        if let Some(stderr) = child.stderr.take() {
-            stream_output(app.clone(), app_id.clone(), "stderr", stderr);
-        }
-        emit_line(&app, &app_id, "system", format!("Sessão Bash persistente iniciada · PID {}", child.id()));
-        sessions.insert(app_id.clone(), ShellSession { child, stdin });
+        sessions.remove(&app_id);
     }
 
-    let session = sessions.get_mut(&app_id).expect("Bash session was initialized");
-    writeln!(session.stdin, "{command}").context("Não foi possível enviar o comando ao Bash.")?;
-    writeln!(session.stdin, "__srm_status=$?; printf '\\n[exit %s]\\n' \"$__srm_status\"")
-        .context("Não foi possível registrar o código de saída do comando.")?;
-    session.stdin.flush().context("Não foi possível atualizar a entrada do Bash.")?;
+    let pty_system = native_pty_system();
+    let pair = pty_system.openpty(PtySize {
+        rows: 28,
+        cols: 110,
+        pixel_width: 0,
+        pixel_height: 0,
+    }).context("Não foi possível criar o pseudo-terminal (PTY).")?;
+    let mut command = CommandBuilder::new(bash);
+    command.args(["--noprofile", "--norc", "-i"]);
+    command.cwd(cwd.clone());
+    let child = pair.slave.spawn_command(command)
+        .with_context(|| format!("Não foi possível iniciar o Bash interativo em {}.", cwd.display()))?;
+    let reader = pair.master.try_clone_reader()
+        .context("Não foi possível abrir a saída do pseudo-terminal.")?;
+    let writer = pair.master.take_writer()
+        .context("Não foi possível abrir a entrada do pseudo-terminal.")?;
+    let master = pair.master;
+    let pid = child.process_id().unwrap_or_default() as u32;
+
+    std::thread::spawn(move || {
+        let mut reader = reader;
+        let mut buffer = [0u8; 4096];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(size) => emit_line(&app, &app_id, "stdout", String::from_utf8_lossy(&buffer[..size]).into_owned()),
+                Err(error) => {
+                    emit_line(&app, &app_id, "system", format!("Leitura do terminal encerrada: {error}"));
+                    break;
+                }
+            }
+        }
+        emit_line(&app, &app_id, "system", "Sessão PTY encerrada.".to_owned());
+    });
+
+    emit_line(&app, &app_id, "system", format!("Terminal Bash interativo iniciado · PTY · PID {pid} · {}", cwd.display()));
+    sessions.insert(app_id, ShellSession { child, master, writer });
+    Ok(pid)
+}
+
+/// Sends raw keyboard input to the interactive terminal, including control keys.
+pub fn write_terminal(app_id: &str, data: &str) -> Result<()> {
+    let mut sessions = shells().lock().map_err(|_| anyhow!("O registro dos terminais está indisponível."))?;
+    let session = sessions.get_mut(app_id)
+        .ok_or_else(|| anyhow!("O terminal de {app_id} ainda não foi iniciado."))?;
+    session.writer.write_all(data.as_bytes())
+        .with_context(|| format!("Não foi possível enviar entrada ao terminal de {app_id}."))?;
+    session.writer.flush()
+        .with_context(|| format!("Não foi possível atualizar a entrada do terminal de {app_id}."))?;
+    Ok(())
+}
+
+/// Resizes the PTY to match the visible terminal dimensions.
+pub fn resize_terminal(app_id: &str, cols: u16, rows: u16) -> Result<()> {
+    let mut sessions = shells().lock().map_err(|_| anyhow!("O registro dos terminais está indisponível."))?;
+    let session = sessions.get_mut(app_id)
+        .ok_or_else(|| anyhow!("O terminal de {app_id} ainda não foi iniciado."))?;
+    session.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .with_context(|| format!("Não foi possível redimensionar o terminal de {app_id}."))?;
+    Ok(())
+}
+
+/// Compatibility entry point for callers that submit a complete command line.
+pub fn run_command(app: AppHandle, app_id: String, cwd: PathBuf, command: String) -> Result<()> {
+    if command.trim().is_empty() {
+        start_terminal(app, app_id, cwd)?;
+        return Ok(());
+    }
+    start_terminal(app, app_id.clone(), cwd)?;
+    emit_line(&app, &app_id, "command", format!("$ {command}"));
+    write_terminal(&app_id, &format!("{command}\r"))
+}
+
+/// Closes one interactive terminal session.
+pub fn stop_terminal(app: AppHandle, app_id: &str) -> Result<()> {
+    let mut sessions = shells().lock().map_err(|_| anyhow!("O registro dos terminais está indisponível."))?;
+    if let Some(mut session) = sessions.remove(app_id) {
+        let _ = session.child.kill();
+        let _ = session.child.wait();
+        emit_line(&app, app_id, "system", "Terminal encerrado pelo usuário.".to_owned());
+    }
     Ok(())
 }
 
@@ -236,7 +298,7 @@ pub fn stop_all(app: AppHandle) {
         for (id, mut session) in std::mem::take(&mut *sessions) {
             let _ = session.child.kill();
             let _ = session.child.wait();
-            emit_line(&app, &id, "system", "Sessão Bash encerrada com o Shared Runtime Manager.".to_owned());
+            emit_line(&app, &id, "system", "Terminal PTY encerrado com o Shared Runtime Manager.".to_owned());
         }
     }
 }
