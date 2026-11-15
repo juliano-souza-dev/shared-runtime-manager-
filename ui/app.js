@@ -1,8 +1,8 @@
 const invoke=window.__TAURI__?.core?.invoke,$=id=>document.getElementById(id);
-let state={applications:[],resources:[],providers:[],root:"",catalog:[],voices:{default_voice_id:null,voices:[]}};
+let state={applications:[],resources:[],providers:[],root:"",catalog:[],ecosystem:[],voices:{default_voice_id:null,voices:[]}};
 let processingStatus={status:"idle",progress:0,current:"Nenhuma operação executada",results:[]};
 let lastVoiceProcessingStatus="";
-const titles={overview:"Visão geral",apps:"Aplicativos",apis:"Provedores de API",resources:"Biblioteca de dependências",voices:"Biblioteca de vozes",processing:"Central de processamentos"};
+const titles={overview:"Visão geral",ecosystem:"Ecossistema de aplicativos",apps:"Aplicativos registrados",apis:"Provedores de API",resources:"Biblioteca de dependências",voices:"Biblioteca de vozes",processing:"Central de processamentos"};
 function note(message,error=false){const n=$("notice");n.textContent=message;n.classList.remove("hidden","error");if(error)n.classList.add("error");clearTimeout(note.timer);note.timer=setTimeout(()=>n.classList.add("hidden"),6500)}
 async function act(command,args={},message){try{await invoke(command,args);if(message)note(message);await load()}catch(e){note(String(e),true);throw e}}
 function esc(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
@@ -14,7 +14,7 @@ function delay(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
 
 function showQueueResults(status){const box=$("queue-results"),list=$("queue-result-list");box.classList.remove("hidden");const results=status.results||[];list.innerHTML=results.map(r=>'<div class="queue-result"><span class="queue-dot '+(r.status==="installed"?"success":"failed")+'"></span><div><strong>'+esc(r.id)+'</strong><small>'+(r.status==="installed"?"Instalado ou já disponível":esc(r.message||"Falha na instalação"))+'</small></div><b>'+(r.status==="installed"?"Concluído":"Erro")+'</b></div>').join("")||empty("Nenhuma dependência processada.");}
 function appOpts(){return state.applications.map(a=>'<option value="'+esc(a.id)+'">'+esc(a.name)+' ('+esc(a.id)+')</option>').join("")}
-async function load(){if(!invoke){note("Abra o Shared Runtime Manager pelo executável desktop.",true);return}try{const [dashboard,catalog,voices]=await Promise.all([invoke("dashboard_data"),invoke("provider_catalog"),invoke("voice_library")]);state={...dashboard,catalog:catalog.providers||[],voices};render();await refreshProcessing()}catch(e){note(String(e),true)}}
+async function load(){if(!invoke){note("Abra o Shared Runtime Manager pelo executável desktop.",true);return}try{const [dashboard,catalog,voices,ecosystem]=await Promise.all([invoke("dashboard_data"),invoke("provider_catalog"),invoke("voice_library"),invoke("applications_catalog")]);state={...dashboard,catalog:catalog.providers||[],voices,ecosystem};render();await refreshProcessing()}catch(e){note(String(e),true)}}
 function renderProcessing(status){
  if(status)processingStatus=status;
  const p=processingStatus||{};
@@ -48,9 +48,18 @@ function renderVoices(){
   return '<article class="voice-item"><div class="voice-item-head"><div><strong>'+esc(v.name)+'</strong><small>'+esc(v.id)+' · '+Number(v.duration_seconds||0).toFixed(1)+'s de referência</small></div>'+(isDefault?'<span class="chip good">Padrão</span>':'<button class="small-btn" data-default-voice="'+esc(v.id)+'">Definir como padrão</button>')+'</div><div class="meta">Modelo: Qwen3-TTS 1.7B Base<br>Perfil: '+esc(v.profile_path)+'</div><div class="voice-preview" id="voice-preview-'+esc(v.id)+'"></div><div class="voice-actions"><button class="small-btn" data-preview-voice="'+esc(v.id)+'">▶ Gerar prévia</button></div></article>';
  }).join("");
 }
+function renderEcosystem(){
+ const list=$("ecosystem-list");if(!list)return;
+ list.innerHTML=(state.ecosystem||[]).map(app=>{
+  const installed=app.installed;
+  const mode=app.mode==="dev"?"Modo DEV":app.mode==="executable"?"Executável":"Ainda não instalado";
+  const actions=installed?'<button class="small-btn primary" data-open-ecosystem="'+esc(app.id)+'">▶ Abrir</button><button class="small-btn" data-install-mode="dev" data-app-id="'+esc(app.id)+'">Reinstalar DEV</button><button class="small-btn" data-install-mode="executable" data-app-id="'+esc(app.id)+'">Gerar executável</button>':'<button class="small-btn" data-install-mode="dev" data-app-id="'+esc(app.id)+'">Instalar DEV</button><button class="small-btn primary" data-install-mode="executable" data-app-id="'+esc(app.id)+'">Gerar e instalar</button>';
+  return '<article class="entity ecosystem-card"><div class="entity-head"><div><div class="entity-name">'+esc(app.name)+'</div><div class="entity-id">'+esc(app.id)+' · '+esc(app.branch)+'</div></div><span class="processing-badge '+(installed?'completed':'idle')+'">'+(installed?esc(mode):'Disponível no catálogo')+'</span></div><p class="ecosystem-description">'+esc(app.description)+'</p><div class="meta">Repositório: <a href="'+esc(app.repository)+'" target="_blank" rel="noopener">'+esc(app.repository)+'</a>'+(app.source_path?'<br>Código-fonte: '+esc(app.source_path):'')+(app.launch_path?'<br>Executável: '+esc(app.launch_path):'')+'</div><div class="entity-actions ecosystem-actions">'+actions+'</div></article>';
+ }).join("")||empty("Nenhum aplicativo cadastrado no catálogo.");
+}
 function render(){
  $("root-path").textContent=state.root;
- renderVoices();
+ renderVoices();renderEcosystem();
  $("stats").innerHTML=[["Aplicativos",state.applications.length,"projetos cadastrados"],["Provedores de API",state.providers.length,"configurações globais"],["Recursos",state.resources.length,"instalações compartilhadas"]].map(x=>'<div class="stat"><small>'+x[0]+'</small><strong>'+x[1]+'</strong><span>'+x[2]+'</span></div>').join("");
  $("overview-apps").innerHTML=state.applications.length?state.applications.slice(0,4).map(a=>'<div class="compact"><strong>'+esc(a.name)+'</strong><small>'+esc(a.id)+'</small></div>').join(""):empty("Nenhum aplicativo cadastrado.");
  $("overview-apis").innerHTML=state.providers.length?state.providers.slice(0,4).map(p=>'<div class="compact"><strong>'+esc(p.name)+'</strong><small>'+p.authorized_apps.length+' acesso(s)</small></div>').join(""):empty("Nenhum provedor configurado.");
@@ -70,6 +79,15 @@ $("processing-current").addEventListener("click",async e=>{
   else{await invoke("restart_processing");note("Operação reiniciada. O progresso será atualizado aqui.");}
   await refreshProcessing();
  }catch(error){note(String(error),true);button.disabled=false}
+});
+$("ecosystem-list").addEventListener("click",async e=>{
+ const open=e.target.closest("[data-open-ecosystem]");
+ if(open){open.disabled=true;try{await invoke("open_ecosystem_application",{appId:open.dataset.openEcosystem});note("Aplicativo iniciado.")}catch(error){note(String(error),true)}finally{open.disabled=false}return}
+ const install=e.target.closest("[data-install-mode]");if(!install)return;
+ const appId=install.dataset.appId,mode=install.dataset.installMode;
+ const label=mode==="dev"?"modo DEV":"modo Executável";
+ if(!confirm("Instalar "+appId+" em "+label+"? O Shared fará Git Clone/atualização, instalará as dependências declaradas, gerará shared.config.json e executará as etapas necessárias."))return;
+ install.disabled=true;try{await invoke("install_ecosystem_application",{appId,mode});await refreshProcessing();page("processing");note("Instalação de "+appId+" iniciada. Acompanhe cada etapa na Central de Processamentos.")}catch(error){note(String(error),true);install.disabled=false}
 });
 document.querySelectorAll(".nav").forEach(x=>x.addEventListener("click",()=>page(x.dataset.page)));
 document.querySelectorAll("[data-go]").forEach(x=>x.addEventListener("click",()=>page(x.dataset.go)));
