@@ -50,7 +50,7 @@ function renderProcessingLogs(logs){
  count.className="processing-badge "+(processingLogs.length?"failed":"idle");
  list.innerHTML=processingLogs.length?processingLogs.map(log=>{
   const date=log.timestamp?new Date(log.timestamp*1000).toLocaleString():"Data não informada";
-  const report=[log.title||"Falha de processamento",date,"Tipo: "+(log.taskType||"não informado"),"",log.detail||"Sem detalhes."].join("\\n");
+  const report=[log.title||"Falha de processamento",date,"Tipo: "+(log.taskType||"não informado"),"",log.detail||"Sem detalhes."].join("\n");
   return '<article class="failure-log"><div class="failure-log-head"><div><strong>'+esc(log.title||"Falha de processamento")+'</strong><small>'+esc(date)+' · '+esc(log.taskType||"processamento")+'</small></div><button class="small-btn" data-copy-log="'+esc(log.id)+'">▣ Copiar log</button></div><details><summary>Ver relatório completo</summary><pre>'+esc(log.detail||"Sem detalhes.")+'</pre></details><textarea class="log-copy-source" data-log-report="'+esc(log.id)+'" hidden>'+esc(report)+'</textarea></article>';
  }).join(""):empty("Nenhuma falha registrada. Quando um processamento falhar, o relatório técnico aparecerá aqui.");
 }
