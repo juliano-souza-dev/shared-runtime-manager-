@@ -173,7 +173,7 @@ fn shell_quote(value: &str) -> String {
 }
 
 fn command_output(program: &str, args: &[&str], cwd: &Path, stage: &str) -> Result<()> {
-    let bash = super::process_manager::bash_path()
+    let bash = super::shell::bash_path()
         .with_context(|| format!("{stage} exige Bash. Instale Git Bash ou configure SRM_BASH_PATH."))?;
     let command = std::iter::once(program)
         .chain(args.iter().copied())
