@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use serde::Serialize;
 use std::{fs, sync::atomic::{AtomicBool, Ordering}};
-use shared_runtime_manager::{api, dependency_queue, manager};
+use shared_runtime_manager::{api, applications, dependency_queue, manager};
 
 static QUEUE_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -34,6 +34,32 @@ fn write_voice_processing_status(status: &str, current: &str, result: Option<ser
     fs::write(&temporary, serde_json::to_vec_pretty(&value).map_err(error_text)?).map_err(error_text)?;
     if target.exists() { fs::remove_file(&target).map_err(error_text)?; }
     fs::rename(&temporary, &target).map_err(error_text)
+}
+
+#[tauri::command]
+fn applications_catalog() -> Result<Vec<applications::CatalogApplication>, String> {
+    applications::catalog().map_err(error_text)
+}
+#[tauri::command]
+fn install_ecosystem_application(app_id: String, mode: String) -> Result<(), String> {
+    if QUEUE_RUNNING.swap(true, Ordering::SeqCst) {
+        return Err("Já existe um processamento em andamento. Aguarde antes de instalar outro aplicativo.".to_owned());
+    }
+    dependency_queue::begin_operation();
+    std::thread::spawn(move || {
+        if let Err(error) = applications::install(&app_id, &mode) {
+            let detail = format!("{error:#}");
+            let _ = write_install_status("error", &format!("Falha ao instalar {app_id}"), &app_id, None,
+                serde_json::json!([{"id":app_id,"status":"error","message":detail}]));
+            let _ = dependency_queue::record_history();
+        }
+        QUEUE_RUNNING.store(false, Ordering::SeqCst);
+    });
+    Ok(())
+}
+#[tauri::command]
+fn open_ecosystem_application(app_id: String) -> Result<(), String> {
+    applications::open(&app_id).map_err(error_text)
 }
 
 #[tauri::command]
@@ -273,7 +299,7 @@ fn save_api_key(provider: String, secret: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            dashboard_data, register_application, delete_application, synchronize_application, delete_shared_dependency,
+            dashboard_data, applications_catalog, install_ecosystem_application, open_ecosystem_application, register_application, delete_application, synchronize_application, delete_shared_dependency,
             start_dependency_queue, dependency_queue_status, install_shared_resource, cancel_processing, restart_processing,
             provider_catalog, available_api_models, save_api_provider, authorize_api,
             revoke_api, save_api_key, voice_library, create_voice_profile, set_default_voice, preview_voice
