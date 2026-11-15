@@ -149,12 +149,12 @@ $("monitor-list").addEventListener("input",async e=>{
 });
 $("monitor-list").addEventListener("keydown",async e=>{
  const input=e.target.closest("[data-terminal-input]");if(!input)return;
- const keys={Enter:"\\r",Backspace:"\\x7f",Tab:"\\t",ArrowUp:"\\x1b[A",ArrowDown:"\\x1b[B",ArrowRight:"\\x1b[C",ArrowLeft:"\\x1b[D",Home:"\\x1b[H",End:"\\x1b[F",Delete:"\\x1b[3~"};
+ const keys={Enter:"\r",Backspace:"\x7f",Tab:"\t",ArrowUp:"\x1b[A",ArrowDown:"\x1b[B",ArrowRight:"\x1b[C",ArrowLeft:"\x1b[D",Home:"\x1b[H",End:"\x1b[F",Delete:"\x1b[3~"};
  let data=keys[e.key];
- if(e.ctrlKey&&e.key.toLowerCase()==="c")data="\\x03";
- else if(e.ctrlKey&&e.key.toLowerCase()==="d")data="\\x04";
- else if(e.ctrlKey&&e.key.toLowerCase()==="z")data="\\x1a";
- else if(e.ctrlKey&&e.key.toLowerCase()==="l")data="\\x0c";
+ if(e.ctrlKey&&e.key.toLowerCase()==="c")data="\x03";
+ else if(e.ctrlKey&&e.key.toLowerCase()==="d")data="\x04";
+ else if(e.ctrlKey&&e.key.toLowerCase()==="z")data="\x1a";
+ else if(e.ctrlKey&&e.key.toLowerCase()==="l")data="\x0c";
  if(data!==undefined){e.preventDefault();try{await invoke("write_application_terminal",{appId:input.dataset.terminalInput,data})}catch(error){note("Falha na entrada do terminal: "+String(error),true)}}
 });
 $("monitor-list").addEventListener("submit",async e=>{
