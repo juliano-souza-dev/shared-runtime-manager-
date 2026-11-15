@@ -32,6 +32,7 @@ struct ShellSession {
 
 static PROCESSES: OnceLock<Mutex<BTreeMap<String, ManagedProcess>>> = OnceLock::new();
 static SHELLS: OnceLock<Mutex<BTreeMap<String, ShellSession>>> = OnceLock::new();
+static OUTPUTS: OnceLock<Mutex<BTreeMap<String, Vec<String>>>> = OnceLock::new();
 
 fn processes() -> &'static Mutex<BTreeMap<String, ManagedProcess>> {
     PROCESSES.get_or_init(|| Mutex::new(BTreeMap::new()))
@@ -41,6 +42,19 @@ fn shells() -> &'static Mutex<BTreeMap<String, ShellSession>> {
     SHELLS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
+fn outputs() -> &'static Mutex<BTreeMap<String, Vec<String>>> {
+    OUTPUTS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+/// Returns the most recent terminal output for an application. This is used
+/// to attach stdout/stderr context to persisted crash diagnostics.
+pub fn recent_output(app_id: &str) -> Vec<String> {
+    outputs().lock()
+        .ok()
+        .and_then(|items| items.get(app_id).cloned())
+        .unwrap_or_default()
+}
+
 pub use crate::shell::bash_path;
 
 fn now() -> u64 {
@@ -48,6 +62,14 @@ fn now() -> u64 {
 }
 
 pub fn emit_line(app: &AppHandle, app_id: &str, stream: &str, line: String) {
+    if let Ok(mut all) = outputs().lock() {
+        let lines = all.entry(app_id.to_owned()).or_default();
+        lines.push(format!("[{stream}] {line}"));
+        if lines.len() > 1000 {
+            let excess = lines.len() - 1000;
+            lines.drain(0..excess);
+        }
+    }
     let _ = app.emit("srm-terminal-output", serde_json::json!({
         "appId": app_id, "stream": stream, "line": line, "timestamp": now()
     }));
