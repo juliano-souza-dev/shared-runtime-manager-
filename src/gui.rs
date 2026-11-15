@@ -71,8 +71,22 @@ fn install_ecosystem_application(app: tauri::AppHandle, app_id: String, mode: St
     Ok(())
 }
 #[tauri::command]
-fn open_ecosystem_application(app_id: String) -> Result<(), String> {
-    applications::open(&app_id).map_err(error_text)
+fn open_ecosystem_application(app: tauri::AppHandle, app_id: String) -> Result<process_manager::ProcessInfo, String> {
+    let (cwd, name, command) = applications::dev_spec(&app_id).map_err(error_text)?;
+    process_manager::start_dev(app, app_id, name, cwd, command).map_err(error_text)
+}
+#[tauri::command]
+fn application_processes() -> Result<Vec<process_manager::ProcessInfo>, String> {
+    process_manager::list().map_err(error_text)
+}
+#[tauri::command]
+fn stop_application_process(app: tauri::AppHandle, app_id: String) -> Result<(), String> {
+    process_manager::stop(app, &app_id).map_err(error_text)
+}
+#[tauri::command]
+fn run_application_shell_command(app: tauri::AppHandle, app_id: String, command: String) -> Result<(), String> {
+    let (cwd, _, _) = applications::dev_spec(&app_id).map_err(error_text)?;
+    process_manager::run_command(app, app_id, cwd, command).map_err(error_text)
 }
 
 #[tauri::command]
