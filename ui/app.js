@@ -2,6 +2,7 @@ const invoke=window.__TAURI__?.core?.invoke,$=id=>document.getElementById(id);
 let state={applications:[],resources:[],providers:[],root:"",catalog:[],ecosystem:[],voices:{default_voice_id:null,voices:[]}};
 let processingStatus={status:"idle",progress:0,current:"Nenhuma operação executada",results:[]};
 let processingLogs=[];
+let lastRenderedLogsSignature="";
 let lastVoiceProcessingStatus="";
 let monitoredProcesses=[];
 let terminalLines={};
@@ -45,8 +46,9 @@ function renderProcessing(status){
 }
 function logCategory(log){
  const type=String(log.taskType||"").toLowerCase();
- if(type.includes("git")||type.includes("repository")||type.includes("clone")||type.includes("update"))return "git";
- if(type.includes("terminal")||type.includes("shell")||type.includes("command"))return "terminal";
+ const text=[log.title,log.detail].join(" ").toLowerCase();
+ if(/git|repository|repo[s ]|clone|pull|fetch|checkout|origin|fast-forward/.test(type+" "+text))return "git";
+ if(type.includes("terminal")||type.includes("shell")||type.includes("command")||text.includes("bash"))return "terminal";
  if(type.includes("dependency")||type.includes("resource")||type.includes("queue"))return "dependency";
  if(type.includes("voice")||type.includes("tts"))return "voice";
  if(type.includes("application")||type.includes("process"))return "application";
@@ -65,6 +67,9 @@ function renderProcessingLogs(logs){
  if(navCount){navCount.textContent=processingLogs.length;navCount.classList.toggle("hidden",!processingLogs.length)}
  const query=($("logs-search")?.value||"").trim().toLowerCase();
  const category=$("logs-filter")?.value||"all";
+ const signature=JSON.stringify(nextLogs)+"|"+query+"|"+category;
+ if(signature===lastRenderedLogsSignature)return;
+ lastRenderedLogsSignature=signature;
  const filtered=processingLogs.filter(log=>{
   const haystack=[log.title,log.taskType,log.detail,log.id].join(" ").toLowerCase();
   return (!query||haystack.includes(query))&&(category==="all"||logCategory(log)===category);
