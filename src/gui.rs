@@ -235,17 +235,30 @@ fn cancel_processing() -> Result<(), String> {
     dependency_queue::request_cancel().map_err(error_text)
 }
 #[tauri::command]
-fn restart_processing() -> Result<(), String> {
+fn restart_processing(app: tauri::AppHandle) -> Result<(), String> {
     if QUEUE_RUNNING.load(Ordering::SeqCst) {
         return Err("A operação atual ainda está encerrando. Aguarde antes de reiniciar.".to_owned());
     }
     let status = dependency_queue::status().map_err(error_text)?;
     if let Some(resource_id) = status.get("resourceId").and_then(serde_json::Value::as_str) {
         let app_id = status.get("appId").and_then(serde_json::Value::as_str).map(str::to_owned);
-        spawn_install_shared_resource(resource_id.to_owned(), app_id)
-    } else {
-        start_dependency_queue()
+        let resources = manager::resources().map_err(error_text)?;
+        if resources.iter().any(|resource| resource.id == resource_id) {
+            return spawn_install_shared_resource(resource_id.to_owned(), app_id);
+        }
+
+        // Ecosystem application installs also store their application ID in
+        // resourceId for legacy status compatibility. Retry them through the
+        // application installer, never through the shared-resource installer.
+        if let Some(application) = applications::catalog().map_err(error_text)?
+            .into_iter().find(|application| application.id == resource_id)
+        {
+            let mode = application.mode.unwrap_or_else(|| "dev".to_owned());
+            return install_ecosystem_application(app, resource_id.to_owned(), mode);
+        }
+        return Err(format!("Não foi possível identificar a operação '{resource_id}' para reiniciá-la."));
     }
+    start_dependency_queue()
 }
 #[tauri::command]
 fn dependency_queue_status() -> Result<serde_json::Value, String> {
