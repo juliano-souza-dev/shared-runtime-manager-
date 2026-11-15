@@ -345,6 +345,11 @@ fn main() {
             provider_catalog, available_api_models, save_api_provider, authorize_api,
             revoke_api, save_api_key, voice_library, create_voice_profile, set_default_voice, preview_voice
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run Shared Runtime Manager");
+        .build(tauri::generate_context!())
+        .expect("failed to build Shared Runtime Manager")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                process_manager::stop_all(app_handle.clone());
+            }
+        });
 }
