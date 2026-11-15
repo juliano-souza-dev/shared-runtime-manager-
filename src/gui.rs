@@ -88,7 +88,7 @@ fn write_voice_processing_status(status: &str, current: &str, result: Option<ser
 
 #[tauri::command]
 fn applications_catalog() -> Result<Vec<applications::CatalogApplication>, String> {
-    applications::catalog().map_err(error_text)
+    applications::catalog().map_err(|error| record_processing_error("catalog", "Falha ao carregar o catálogo de aplicativos", error))
 }
 #[tauri::command]
 fn install_ecosystem_application(app: tauri::AppHandle, app_id: String, mode: String) -> Result<(), String> {
@@ -223,23 +223,31 @@ fn run_application_shell_command(app: tauri::AppHandle, app_id: String, command:
 }
 #[tauri::command]
 fn dashboard_data() -> Result<Dashboard, String> {
-    let root = manager::root().map_err(error_text)?;
-    Ok(Dashboard {
-        root: root.display().to_string(),
-        applications: manager::applications().map_err(error_text)?,
-        resources: manager::resources().map_err(error_text)?,
-        providers: api::providers().map_err(error_text)?,
-    })
+    let result = (|| -> Result<Dashboard, String> {
+        let root = manager::root().map_err(error_text)?;
+        Ok(Dashboard {
+            root: root.display().to_string(),
+            applications: manager::applications().map_err(error_text)?,
+            resources: manager::resources().map_err(error_text)?,
+            providers: api::providers().map_err(error_text)?,
+        })
+    })();
+    result.map_err(|error| record_processing_error("dashboard", "Falha ao carregar os dados do gerenciador", error))
 }
 #[tauri::command]
 fn register_application(app_id: String, name: String, installation_path: String) -> Result<(), String> {
-    manager::register_app_at_path(&app_id, &name, &installation_path).map_err(error_text)?;
-    dependency_queue::enqueue_application(&app_id, &installation_path).map_err(error_text)
+    let title = format!("Falha ao registrar o aplicativo {app_id}");
+    let result = (|| -> Result<(), String> {
+        manager::register_app_at_path(&app_id, &name, &installation_path).map_err(error_text)?;
+        dependency_queue::enqueue_application(&app_id, &installation_path).map_err(error_text)
+    })();
+    result.map_err(|error| record_processing_error("application-register", &title, error))
 }
 #[tauri::command]
 fn delete_application(app_id: String) -> Result<(), String> {
-    manager::unregister_application(&app_id).map_err(error_text)?;
-    dependency_queue::remove_application(&app_id).map_err(error_text)
+    let result = manager::unregister_application(&app_id).map_err(error_text)
+        .and_then(|_| dependency_queue::remove_application(&app_id).map_err(error_text));
+    result.map_err(|error| record_processing_error("application-delete", &format!("Falha ao remover o vínculo de {app_id}"), error))
 }
 #[tauri::command]
 fn synchronize_application(app_id: String) -> Result<(), String> {
@@ -363,9 +371,9 @@ fn start_dependency_queue() -> Result<(), String> {
 #[tauri::command]
 fn cancel_processing() -> Result<(), String> {
     if !QUEUE_RUNNING.load(Ordering::SeqCst) {
-        return Err("Não há processamento ativo para cancelar.".to_owned());
+        return Err(record_processing_error("processing-cancel", "Não foi possível cancelar o processamento", "Não há processamento ativo para cancelar."));
     }
-    dependency_queue::request_cancel().map_err(error_text)
+    dependency_queue::request_cancel().map_err(|error| record_processing_error("processing-cancel", "Falha ao solicitar cancelamento do processamento", error))
 }
 #[tauri::command]
 fn restart_processing(app: tauri::AppHandle) -> Result<(), String> {
@@ -395,7 +403,7 @@ fn restart_processing(app: tauri::AppHandle) -> Result<(), String> {
 }
 #[tauri::command]
 fn dependency_queue_status() -> Result<serde_json::Value, String> {
-    dependency_queue::status().map_err(error_text)
+    dependency_queue::status().map_err(|error| record_processing_error("queue-status", "Falha ao consultar o estado da fila", error))
 }
 #[tauri::command]
 fn processing_logs() -> Result<Vec<serde_json::Value>, String> {
@@ -406,7 +414,7 @@ fn processing_logs() -> Result<Vec<serde_json::Value>, String> {
 }
 #[tauri::command]
 fn voice_library() -> Result<serde_json::Value, String> {
-    shared_runtime_manager::voices::list().map_err(error_text)
+    shared_runtime_manager::voices::list().map_err(|error| record_processing_error("voice-library", "Falha ao carregar a biblioteca de vozes", error))
 }
 #[tauri::command]
 fn create_voice_profile(name: String, filename: String, audio_base64: String, reference_text: String) -> Result<(), String> {
@@ -465,7 +473,7 @@ fn create_voice_profile(name: String, filename: String, audio_base64: String, re
 }
 #[tauri::command]
 fn set_default_voice(voice_id: String) -> Result<(), String> {
-    shared_runtime_manager::voices::set_default(&voice_id).map_err(error_text)
+    shared_runtime_manager::voices::set_default(&voice_id).map_err(|error| record_processing_error("voice-default", &format!("Falha ao definir a voz padrão {voice_id}"), error))
 }
 #[tauri::command]
 fn preview_voice(voice_id: String, text: String) -> Result<String, String> {
@@ -474,24 +482,24 @@ fn preview_voice(voice_id: String, text: String) -> Result<String, String> {
     ))
 }
 #[tauri::command]
-fn provider_catalog() -> Result<serde_json::Value, String> { api::provider_catalog().map_err(error_text) }
+fn provider_catalog() -> Result<serde_json::Value, String> { api::provider_catalog().map_err(|error| record_processing_error("api-catalog", "Falha ao carregar o catálogo de provedores", error)) }
 #[tauri::command]
-fn available_api_models(provider: String) -> Result<Vec<String>, String> { api::available_models(&provider).map_err(error_text) }
+fn available_api_models(provider: String) -> Result<Vec<String>, String> { api::available_models(&provider).map_err(|error| record_processing_error("api-models", &format!("Falha ao consultar modelos do provedor {provider}"), error)) }
 #[tauri::command]
 fn save_api_provider(provider: String, name: String, endpoint: String, model: String) -> Result<(), String> {
-    api::add(&provider, &name, &endpoint, &model).map_err(error_text)
+    api::add(&provider, &name, &endpoint, &model).map_err(|error| record_processing_error("api-provider-save", &format!("Falha ao salvar provedor {provider}"), error))
 }
 #[tauri::command]
 fn authorize_api(provider: String, app_id: String) -> Result<(), String> {
-    api::authorize(&provider, &app_id).map_err(error_text)
+    api::authorize(&provider, &app_id).map_err(|error| record_processing_error("api-authorize", &format!("Falha ao autorizar {app_id} no provedor {provider}"), error))
 }
 #[tauri::command]
 fn revoke_api(provider: String, app_id: String) -> Result<(), String> {
-    api::revoke(&provider, &app_id).map_err(error_text)
+    api::revoke(&provider, &app_id).map_err(|error| record_processing_error("api-revoke", &format!("Falha ao revogar {app_id} no provedor {provider}"), error))
 }
 #[tauri::command]
 fn save_api_key(provider: String, secret: String) -> Result<(), String> {
-    api::set_key(&provider, &secret).map_err(error_text)
+    api::set_key(&provider, &secret).map_err(|error| record_processing_error("api-key-save", &format!("Falha ao armazenar chave do provedor {provider}"), error))
 }
 fn main() {
     tauri::Builder::default()
