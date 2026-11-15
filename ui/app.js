@@ -6,14 +6,14 @@ let lastVoiceProcessingStatus="";
 let monitoredProcesses=[];
 let terminalLines={};
 let terminalListenerReady=false;
-const titles={overview:"Visão geral",ecosystem:"Ecossistema de aplicativos",apps:"Aplicativos registrados",apis:"Provedores de API",resources:"Biblioteca de dependências",voices:"Biblioteca de vozes",processing:"Central de processamentos",monitor:"Monitor de aplicações"};
+const titles={overview:"Visão geral",ecosystem:"Ecossistema de aplicativos",apps:"Aplicativos registrados",apis:"Provedores de API",resources:"Biblioteca de dependências",voices:"Biblioteca de vozes",processing:"Central de processamentos",logs:"Logs de falhas",monitor:"Monitor de aplicações"};
 function note(message,error=false){const n=$("notice");n.textContent=message;n.classList.remove("hidden","error");if(error)n.classList.add("error");clearTimeout(note.timer);note.timer=setTimeout(()=>n.classList.add("hidden"),6500)}
 async function act(command,args={},message){try{await invoke(command,args);if(message)note(message);await load()}catch(e){note(String(e),true);throw e}}
 function esc(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function empty(t){return '<div class="empty">'+esc(t)+'</div>'}
 function formatBytes(value){const bytes=Math.max(0,Number(value)||0);if(bytes<1024)return bytes+" B";const units=["KB","MB","GB","TB"];let size=bytes/1024,index=0;while(size>=1024&&index<units.length-1){size/=1024;index++}return size.toFixed(size>=100?0:1)+" "+units[index]}
 function isManagedSharedPath(path){const normalize=value=>{let result=String(value||"").replaceAll("\\","/").toLowerCase();while(result.endsWith("/"))result=result.slice(0,-1);return result};const root=normalize(state.root),candidate=normalize(path);return !!root&&(candidate===root||candidate.startsWith(root+"/"))}
-function page(p){document.querySelectorAll(".page").forEach(x=>x.classList.add("hidden"));$("page-"+p).classList.remove("hidden");$("page-title").textContent=titles[p];document.querySelectorAll(".nav").forEach(x=>x.classList.toggle("active",x.dataset.page===p));if(p==="processing")refreshProcessing();if(p==="monitor")refreshMonitor()}
+function page(p){document.querySelectorAll(".page").forEach(x=>x.classList.add("hidden"));$("page-"+p).classList.remove("hidden");$("page-title").textContent=titles[p];document.querySelectorAll(".nav").forEach(x=>x.classList.toggle("active",x.dataset.page===p));if(p==="processing")refreshProcessing();if(p==="logs")refreshProcessing();if(p==="monitor")refreshMonitor()}
 function delay(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
 
 function showQueueResults(status){const box=$("queue-results"),list=$("queue-result-list");box.classList.remove("hidden");const results=status.results||[];list.innerHTML=results.map(r=>'<div class="queue-result"><span class="queue-dot '+(r.status==="installed"?"success":"failed")+'"></span><div><strong>'+esc(r.id)+'</strong><small>'+(r.status==="installed"?"Instalado ou já disponível":esc(r.message||"Falha na instalação"))+'</small></div><b>'+(r.status==="installed"?"Concluído":"Erro")+'</b></div>').join("")||empty("Nenhuma dependência processada.");}
@@ -42,20 +42,39 @@ function renderProcessing(status){
  const history=p.history||[];
  $("processing-history").innerHTML=history.length?history.map(item=>'<div class="queue-result"><span class="queue-dot '+(item.status==="completed"?"success":"failed")+'"></span><div><strong>'+esc(item.taskType==="voice-profile"?"Criação de perfil de voz":item.resourceId||item.application||"Fila de dependências")+'</strong><small>'+esc(item.current||item.status)+' · '+(item.finishedAt?new Date(item.finishedAt*1000).toLocaleString():"")+'</small></div><b>'+ (item.status==="completed"?"Concluído":item.status==="cancelled"?"Cancelado":"Falha")+'</b></div>').join(""):empty("As operações concluídas, canceladas ou com falha aparecerão aqui.");
 }
+function logCategory(log){
+ const type=String(log.taskType||"").toLowerCase();
+ if(type.includes("git")||type.includes("repository")||type.includes("clone")||type.includes("update"))return "git";
+ if(type.includes("terminal")||type.includes("shell")||type.includes("command"))return "terminal";
+ if(type.includes("dependency")||type.includes("resource")||type.includes("queue"))return "dependency";
+ if(type.includes("voice")||type.includes("tts"))return "voice";
+ if(type.includes("application")||type.includes("process"))return "application";
+ return "other";
+}
+function logReport(log){
+ const date=log.timestamp?new Date(log.timestamp*1000).toLocaleString():"Data não informada";
+ return ["SHARED RUNTIME MANAGER · RELATÓRIO DE FALHA",log.title||"Falha de processamento",date,"ID: "+(log.id||"não informado"),"Categoria: "+logCategory(log),"Tipo: "+(log.taskType||"não informado"),"","DIAGNÓSTICO COMPLETO","",log.detail||"Sem detalhes."].join("\n");
+}
 function renderProcessingLogs(logs){
  const nextLogs=Array.isArray(logs)?logs:[];
  const count=$("processing-logs-count"),list=$("processing-logs");
  if(!count||!list)return;
- if(list.dataset.rendered==="true"&&JSON.stringify(nextLogs)===JSON.stringify(processingLogs))return;
  processingLogs=nextLogs;
- list.dataset.rendered="true";
- count.textContent=processingLogs.length+" registro(s)";
+ const navCount=$("logs-nav-count");
+ if(navCount){navCount.textContent=processingLogs.length;navCount.classList.toggle("hidden",!processingLogs.length)}
+ const query=($("logs-search")?.value||"").trim().toLowerCase();
+ const category=$("logs-filter")?.value||"all";
+ const filtered=processingLogs.filter(log=>{
+  const haystack=[log.title,log.taskType,log.detail,log.id].join(" ").toLowerCase();
+  return (!query||haystack.includes(query))&&(category==="all"||logCategory(log)===category);
+ });
+ count.textContent=processingLogs.length+" registro(s) · "+filtered.length+" exibido(s)";
  count.className="processing-badge "+(processingLogs.length?"failed":"idle");
- list.innerHTML=processingLogs.length?processingLogs.map(log=>{
+ list.innerHTML=filtered.length?filtered.map(log=>{
   const date=log.timestamp?new Date(log.timestamp*1000).toLocaleString():"Data não informada";
-  const report=[log.title||"Falha de processamento",date,"Tipo: "+(log.taskType||"não informado"),"",log.detail||"Sem detalhes."].join("\n");
-  return '<article class="failure-log"><div class="failure-log-head"><div><strong>'+esc(log.title||"Falha de processamento")+'</strong><small>'+esc(date)+' · '+esc(log.taskType||"processamento")+'</small></div><button class="small-btn" data-copy-log="'+esc(log.id)+'">▣ Copiar log</button></div><details><summary>Ver relatório completo</summary><pre>'+esc(log.detail||"Sem detalhes.")+'</pre></details><textarea class="log-copy-source" data-log-report="'+esc(log.id)+'" hidden>'+esc(report)+'</textarea></article>';
- }).join(""):empty("Nenhuma falha registrada. Quando um processamento falhar, o relatório técnico aparecerá aqui.");
+  const report=logReport(log);
+  return '<article class="failure-log"><div class="failure-log-head"><div><strong>'+esc(log.title||"Falha de processamento")+'</strong><small>'+esc(date)+' · '+esc(log.taskType||"processamento")+' · '+esc(log.id||"")+'</small></div><button class="small-btn" data-copy-log="'+esc(log.id)+'">▣ Copiar relatório</button></div><details><summary>Investigar diagnóstico completo</summary><pre>'+esc(log.detail||"Sem detalhes.")+'</pre></details><textarea class="log-copy-source" data-log-report="'+esc(log.id)+'" hidden>'+esc(report)+'</textarea></article>';
+ }).join(""):empty(processingLogs.length?"Nenhum registro corresponde aos filtros atuais.":"Nenhuma falha registrada. Os erros de processamento aparecerão nesta página.");
 }
 async function refreshProcessing(){if(!invoke)return;try{const [next,logs]=await Promise.all([invoke("dependency_queue_status"),invoke("processing_logs")]);renderProcessing(next);renderProcessingLogs(logs);if(next.taskType==="voice-profile"&&["completed","error"].includes(next.status)&&lastVoiceProcessingStatus!==next.status){lastVoiceProcessingStatus=next.status;if(next.status==="completed"){state.voices=await invoke("voice_library");renderVoices();note("Perfil de voz pronto e disponível na biblioteca.")}}else if(next.taskType==="voice-profile"&&next.status==="running"){lastVoiceProcessingStatus="running"}}catch(e){console.error("Não foi possível atualizar a Central de Processamentos:",e)}}
 function appendTerminalLine(payload){
@@ -135,6 +154,15 @@ function render(){
 
  document.querySelectorAll("[data-install-resource]").forEach(button=>{const installed=state.resources.some(resource=>resource.id===button.dataset.installResource);button.disabled=installed||["queued","installing","running","cancelling"].includes(processingStatus.status);if(["qwen3-tts","qwen3-tts-base-clone"].includes(button.dataset.installResource))button.hidden=installed;});
 }
+$("logs-search").addEventListener("input",()=>renderProcessingLogs(processingLogs));
+$("logs-filter").addEventListener("change",()=>renderProcessingLogs(processingLogs));
+$("logs-refresh").onclick=refreshProcessing;
+$("logs-copy-all").onclick=async()=>{
+ const reports=processingLogs.map(logReport).join("\n\n"+"=".repeat(88)+"\n\n");
+ if(!reports)return note("Não há logs para copiar.",true);
+ try{await navigator.clipboard.writeText(reports);note("Todos os relatórios foram copiados.");}
+ catch(error){note("Não foi possível copiar todos os logs: "+String(error),true);}
+};
 $("processing-logs").addEventListener("click",async e=>{
  const button=e.target.closest("[data-copy-log]");if(!button)return;
  const source=$("processing-logs").querySelector('[data-log-report="'+CSS.escape(button.dataset.copyLog)+'"]');
