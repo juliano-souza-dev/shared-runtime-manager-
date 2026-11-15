@@ -211,35 +211,81 @@ where F: FnMut(&str, &str) {
     Ok(())
 }
 
+fn git_command_output<F>(args: &[&str], cwd: &Path, stage: &str, on_output: &mut F) -> Result<()>
+where F: FnMut(&str, &str) {
+    let display_command = format!("git {}", args.join(" "));
+    let mut child = Command::new("git")
+        .args(args).current_dir(cwd).stdin(Stdio::null())
+        .stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn().with_context(|| format!(
+            "{stage}: não foi possível iniciar o Git. Comando: {display_command}. Diretório: {}. Verifique se o Git está instalado e disponível no PATH.",
+            cwd.display()
+        ))?;
+    let (sender, receiver) = mpsc::channel::<(&'static str, String)>();
+    if let Some(stdout) = child.stdout.take() {
+        let tx = sender.clone();
+        thread::spawn(move || for line in BufReader::new(stdout).lines().flatten() { let _ = tx.send(("stdout", line)); });
+    }
+    if let Some(stderr) = child.stderr.take() {
+        let tx = sender.clone();
+        thread::spawn(move || for line in BufReader::new(stderr).lines().flatten() { let _ = tx.send(("stderr", line)); });
+    }
+    drop(sender);
+    let (mut stdout_text, mut stderr_text) = (String::new(), String::new());
+    for (stream, line) in receiver {
+        on_output(stream, &line);
+        let target = if stream == "stdout" { &mut stdout_text } else { &mut stderr_text };
+        target.push_str(&line);
+        target.push('\n');
+    }
+    let status = child.wait().with_context(|| format!(
+        "{stage}: não foi possível aguardar o Git. Comando: {display_command}. Diretório: {}",
+        cwd.display()
+    ))?;
+    if !status.success() {
+        let details = if !stderr_text.trim().is_empty() { stderr_text.trim() }
+            else if !stdout_text.trim().is_empty() { stdout_text.trim() }
+            else { "O Git encerrou sem fornecer detalhes em stdout ou stderr." };
+        bail!("{stage} falhou.\nComando: {display_command}\nDiretório: {}\nCódigo de saída: {:?}\nSaída original do Git:\n{}",
+            cwd.display(), status.code(), details);
+    }
+    Ok(())
+}
+
 fn clone_source<F>(def: &Definition, source: &Path, on_output: &mut F) -> Result<()>
 where F: FnMut(&str, &str) {
     if let Some(parent) = source.parent() { fs::create_dir_all(parent)?; }
-    command_output("git", &["clone", "--branch", def.branch, "--depth", "1", def.repository, source.to_string_lossy().as_ref()], source.parent().unwrap_or(source), "Git Clone", on_output)
+    git_command_output(
+        &["clone", "--branch", def.branch, "--depth", "1", def.repository, source.to_string_lossy().as_ref()],
+        source.parent().unwrap_or(source), "Git Clone", on_output,
+    )
 }
 
-fn ensure_source<F>(def: &Definition, source: &Path, recreate_on_update_failure: bool, on_output: &mut F) -> Result<()>
+fn ensure_source<F>(def: &Definition, source: &Path, dev_mode: bool, on_output: &mut F) -> Result<()>
 where F: FnMut(&str, &str) {
     if source.join(".git").is_dir() {
-        let update = command_output("git", &["-C", source.to_string_lossy().as_ref(), "pull", "--ff-only", "origin", def.branch], source.parent().unwrap_or(source), "atualização do repositório", on_output);
-        if let Err(error) = update {
-            if !recreate_on_update_failure {
-                return Err(error);
-            }
-            on_output("system", "A atualização falhou. Como o aplicativo está em modo DEV, removendo a pasta source para fazer um clone limpo...");
-            fs::remove_dir_all(source)
-                .with_context(|| format!("Não foi possível remover a pasta source após falha na atualização: {}", source.display()))?;
-            clone_source(def, source, on_output)
-                .context("A atualização falhou e o clone limpo do repositório também não pôde ser concluído.")?;
+        if dev_mode {
+            on_output("system", &format!("Sincronizando com origin/{}: a versão remota será a fonte da verdade.", def.branch));
+            git_command_output(&["fetch", "--prune", "origin", def.branch], source, "Git Fetch", on_output)?;
+            git_command_output(&["checkout", "-B", def.branch, &format!("origin/{}", def.branch)], source, "Git Checkout forçado", on_output)?;
+            git_command_output(&["reset", "--hard", &format!("origin/{}", def.branch)], source, "Git Reset --hard", on_output)?;
+            git_command_output(&["clean", "-fdx"], source, "Git Clean", on_output)?;
+        } else {
+            command_output("git", &["-C", source.to_string_lossy().as_ref(), "pull", "--ff-only", "origin", def.branch], source.parent().unwrap_or(source), "atualização do repositório", on_output)?;
         }
     } else {
-        if source.exists() && fs::read_dir(source)?.next().is_some() {
-            bail!("A pasta de destino existe e não está vazia: {}", source.display());
+        if source.exists() {
+            if dev_mode {
+                on_output("system", "A pasta source não contém um repositório Git válido. Removendo-a para reconstruir a cópia DEV...");
+                fs::remove_dir_all(source).with_context(|| format!("Não foi possível remover a pasta source inválida: {}", source.display()))?;
+            } else if fs::read_dir(source)?.next().is_some() {
+                bail!("A pasta de destino existe e não está vazia: {}", source.display());
+            }
         }
         clone_source(def, source, on_output)?;
     }
     Ok(())
 }
-
 fn prepare_shared(def: &Definition, source: &Path) -> Result<String> {
     let example_path = source.join("shared.config.example.json");
     if !example_path.is_file() {
