@@ -5,7 +5,7 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -168,19 +168,26 @@ fn write_status(status: &str, current: &str, app_id: &str, progress: u8, result:
     Ok(())
 }
 
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\\'', "'\\''"))
+}
+
 fn command_output(program: &str, args: &[&str], cwd: &Path, stage: &str) -> Result<()> {
-    let output = if cfg!(windows) {
-        let mut command = Command::new("cmd");
-        command.arg("/C").arg(program);
-        for arg in args { command.arg(arg); }
-        command.current_dir(cwd).output()
-    } else {
-        Command::new(program).args(args).current_dir(cwd).output()
-    }.with_context(|| format!("Não foi possível iniciar {stage}. Verifique se {program} está instalado e disponível no PATH."))?;
+    let bash = super::process_manager::bash_path()
+        .with_context(|| format!("{stage} exige Bash. Instale Git Bash ou configure SRM_BASH_PATH."))?;
+    let command = std::iter::once(program)
+        .chain(args.iter().copied())
+        .map(shell_quote)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let output = Command::new(bash)
+        .arg("--noprofile").arg("--norc").arg("-lc").arg(command)
+        .current_dir(cwd).output()
+        .with_context(|| format!("Não foi possível iniciar {stage} pelo Bash."))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        bail!("{stage} falhou (código {:?}).\n{}\n{}", output.status.code(), stdout.trim(), stderr.trim());
+        bail!("{stage} falhou (código {:?}).\\n{}\\n{}", output.status.code(), stdout.trim(), stderr.trim());
     }
     Ok(())
 }
@@ -250,29 +257,6 @@ fn build_application(def: &Definition, source: &Path, workdir: &Path) -> Result<
         bail!("O build terminou, mas o executável esperado não foi encontrado: {}", exe.display());
     }
     Ok(exe)
-}
-
-fn launch_dev(def: &Definition, workdir: &Path, source: &Path) -> Result<()> {
-    let (program, args, cwd): (&str, Vec<&str>, &Path) = if def.id == "nova-generator" {
-        ("npm", vec!["run", "tauri", "--workspace", "@nova-generator/desktop", "--", "dev"], source)
-    } else {
-        ("npm", vec!["run", "tauri", "dev"], workdir)
-    };
-    #[cfg(windows)]
-    {
-        let mut command = Command::new("cmd");
-        command.arg("/C").arg("start").arg("").arg(program);
-        for arg in &args { command.arg(arg); }
-        command.current_dir(cwd).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()
-            .context("Não foi possível abrir o aplicativo em modo DEV.")?;
-    }
-    #[cfg(not(windows))]
-    {
-        Command::new(program).args(&args).current_dir(cwd)
-            .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()
-            .context("Não foi possível abrir o aplicativo em modo DEV.")?;
-    }
-    Ok(())
 }
 
 pub fn dev_spec(app_id: &str) -> Result<(PathBuf, String, String)> {\n    let def = definition(app_id)?;\n    let root = super::manager::root()?;\n    let source = root.join("applications").join(def.id).join("source");\n    let workdir = source.join(def.frontend_dir);\n    let command = if def.id == "nova-generator" {\n        "npm run tauri --workspace @nova-generator/desktop -- dev".to_owned()\n    } else {\n        "npm run tauri dev".to_owned()\n    };\n    Ok((workdir, def.name.to_owned(), command))\n}\n\npub fn install(app_id: &str, mode: &str) -> Result<()> {
