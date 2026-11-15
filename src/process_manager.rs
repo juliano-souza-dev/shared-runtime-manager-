@@ -127,7 +127,7 @@ pub fn start_dev(app: AppHandle, app_id: String, name: String, cwd: PathBuf, com
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => break,
-                Ok(size) => emit_line(&output_app, &output_id, "stdout", String::from_utf8_lossy(&buffer[..size]).into_owned()),
+                Ok(size) => emit_line(&output_app, &output_id, "pty", String::from_utf8_lossy(&buffer[..size]).into_owned()),
                 Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe || error.kind() == std::io::ErrorKind::UnexpectedEof => break,
                 Err(error) => {
                     emit_line(&output_app, &output_id, "system", format!("Falha ao ler o terminal da aplicação: {error}"));
@@ -222,7 +222,7 @@ pub fn start_terminal(app: AppHandle, app_id: String, cwd: PathBuf) -> Result<u3
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => break,
-                Ok(size) => emit_line(&app, &app_id, "stdout", String::from_utf8_lossy(&buffer[..size]).into_owned()),
+                Ok(size) => emit_line(&app, &app_id, "pty", String::from_utf8_lossy(&buffer[..size]).into_owned()),
                 Err(error) => {
                     emit_line(&app, &app_id, "system", format!("Leitura do terminal encerrada: {error}"));
                     break;
