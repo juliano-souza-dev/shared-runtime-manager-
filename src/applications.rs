@@ -1,12 +1,14 @@
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use portable_pty::{native_pty_system, CommandBuilder, PtySize, PtySystem};
 use std::{
     collections::BTreeMap,
+    ffi::{OsStr, OsString},
     fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Command,
     sync::mpsc,
     thread,
     time::{SystemTime, UNIX_EPOCH},
@@ -175,6 +177,91 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+fn pty_process_output<F>(
+    program: &OsStr,
+    args: &[OsString],
+    cwd: &Path,
+    stage: &str,
+    display_command: &str,
+    on_output: &mut F,
+    disable_git_prompts: bool,
+) -> Result<()>
+where
+    F: FnMut(&str, &str),
+{
+    let pty_system = native_pty_system();
+    let pair = pty_system.openpty(PtySize {
+        rows: 32,
+        cols: 120,
+        pixel_width: 0,
+        pixel_height: 0,
+    }).with_context(|| format!(
+        "{stage}: não foi possível criar um terminal PTY.\nComando: {display_command}\nDiretório: {}",
+        cwd.display()
+    ))?;
+    let mut command = CommandBuilder::new(program);
+    command.args(args);
+    command.cwd(cwd);
+    command.env("TERM", "xterm-256color");
+    if disable_git_prompts {
+        command.env("GIT_TERMINAL_PROMPT", "0");
+        command.env("GCM_INTERACTIVE", "Never");
+    }
+    let mut child = pair.slave.spawn_command(command).with_context(|| format!(
+        "{stage}: não foi possível iniciar o processo dentro do terminal PTY.\nComando: {display_command}\nDiretório: {}",
+        cwd.display()
+    ))?;
+    drop(pair.slave);
+    let mut reader = pair.master.try_clone_reader()
+        .with_context(|| format!("{stage}: não foi possível ler a saída do terminal PTY."))?;
+    let mut captured = String::new();
+    let mut pending = String::new();
+    let mut line_number = 0usize;
+    let mut buffer = [0u8; 8192];
+    loop {
+        let size = match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(size) => size,
+            Err(error) => {
+                let _ = child.kill();
+                bail!(
+                    "{stage}: falha ao ler a saída do terminal PTY.\nComando: {display_command}\nDiretório: {}\nErro de leitura: {error}",
+                    cwd.display()
+                );
+            }
+        };
+        let chunk = String::from_utf8_lossy(&buffer[..size]);
+        captured.push_str(&chunk);
+        pending.push_str(&chunk);
+        while let Some(position) = pending.find('\n') {
+            let line = pending[..position].trim_end_matches('\r').to_owned();
+            pending.drain(..=position);
+            line_number += 1;
+            on_output("stdout", &line);
+        }
+    }
+    if !pending.is_empty() {
+        line_number += 1;
+        on_output("stdout", pending.trim_end_matches('\r'));
+    }
+    let status = child.wait().with_context(|| format!(
+        "{stage}: não foi possível aguardar o processo do terminal PTY.\nComando: {display_command}\nDiretório: {}",
+        cwd.display()
+    ))?;
+    if !status.success() {
+        let numbered = captured.lines().enumerate()
+            .map(|(index, line)| format!("[pty:{:04}] {}", index + 1, line.trim_end_matches('\r')))
+            .collect::<Vec<_>>()
+            .join("\n");
+        bail!(
+            "{stage} falhou.\nComando: {display_command}\nDiretório: {}\nCódigo de saída: {status}\n\nSaída completa do terminal PTY (linhas numeradas):\n{}",
+            cwd.display(),
+            if numbered.trim().is_empty() { "O processo não forneceu saída no terminal.".to_owned() } else { numbered }
+        );
+    }
+    Ok(())
+}
+
 fn command_output<F>(program: &str, args: &[&str], cwd: &Path, stage: &str, on_output: &mut F) -> Result<()>
 where F: FnMut(&str, &str) {
     let bash = super::shell::bash_path()
@@ -185,79 +272,36 @@ where F: FnMut(&str, &str) {
         .collect::<Vec<_>>()
         .join(" ");
     let display_command = format!("{program} {}", args.join(" "));
-    let mut child = Command::new(bash)
-        .arg("--noprofile").arg("--norc").arg("-lc").arg(command)
-        .current_dir(cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().with_context(|| format!(
-            "{stage}: não foi possível iniciar o processo pelo Bash.\nComando: {display_command}\nDiretório: {}",
-            cwd.display()
-        ))?;
-    let (sender, receiver) = mpsc::channel::<(&'static str, String)>();
-    if let Some(stdout) = child.stdout.take() {
-        let tx = sender.clone();
-        thread::spawn(move || for line in BufReader::new(stdout).lines().flatten() { let _ = tx.send(("stdout", line)); });
-    }
-    if let Some(stderr) = child.stderr.take() {
-        let tx = sender.clone();
-        thread::spawn(move || for line in BufReader::new(stderr).lines().flatten() { let _ = tx.send(("stderr", line)); });
-    }
-    drop(sender);
-    let (mut captured, mut stdout_line, mut stderr_line) = (String::new(), 0usize, 0usize);
-    for (stream, line) in receiver {
-        on_output(stream, &line);
-        let number = if stream == "stdout" { stdout_line += 1; stdout_line } else { stderr_line += 1; stderr_line };
-        captured.push_str(&format!("[{stream}:{number:04}] {line}\n"));
-    }
-    let status = child.wait().with_context(|| format!(
-        "{stage}: não foi possível aguardar o processo.\nComando: {display_command}\nDiretório: {}",
-        cwd.display()
-    ))?;
-    if !status.success() {
-        bail!(
-            "{stage} falhou.\nComando: {display_command}\nDiretório: {}\nCódigo de saída: {:?}\n\nSaída completa do processo (linhas numeradas):\n{}",
-            cwd.display(), status.code(), if captured.trim().is_empty() { "O processo não forneceu saída em stdout ou stderr." } else { captured.trim() }
-        );
-    }
-    Ok(())
+    let command_args = vec![
+        OsString::from("--noprofile"),
+        OsString::from("--norc"),
+        OsString::from("-lc"),
+        OsString::from(command),
+    ];
+    pty_process_output(
+        bash.as_os_str(),
+        &command_args,
+        cwd,
+        stage,
+        &display_command,
+        on_output,
+        false,
+    )
 }
 
 fn git_command_output<F>(args: &[&str], cwd: &Path, stage: &str, on_output: &mut F) -> Result<()>
 where F: FnMut(&str, &str) {
     let display_command = format!("git {}", args.join(" "));
-    let mut child = Command::new("git")
-        .args(args).current_dir(cwd).stdin(Stdio::null())
-        .stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().with_context(|| format!(
-            "{stage}: não foi possível iniciar o Git. Comando: {display_command}. Diretório: {}. Verifique se o Git está instalado e disponível no PATH.",
-            cwd.display()
-        ))?;
-    let (sender, receiver) = mpsc::channel::<(&'static str, String)>();
-    if let Some(stdout) = child.stdout.take() {
-        let tx = sender.clone();
-        thread::spawn(move || for line in BufReader::new(stdout).lines().flatten() { let _ = tx.send(("stdout", line)); });
-    }
-    if let Some(stderr) = child.stderr.take() {
-        let tx = sender.clone();
-        thread::spawn(move || for line in BufReader::new(stderr).lines().flatten() { let _ = tx.send(("stderr", line)); });
-    }
-    drop(sender);
-    let (mut output_text, mut stdout_line, mut stderr_line) = (String::new(), 0usize, 0usize);
-    for (stream, line) in receiver {
-        on_output(stream, &line);
-        let number = if stream == "stdout" { stdout_line += 1; stdout_line } else { stderr_line += 1; stderr_line };
-        output_text.push_str(&format!("[{stream}:{number:04}] {line}\n"));
-    }
-    let status = child.wait().with_context(|| format!(
-        "{stage}: não foi possível aguardar o Git. Comando: {display_command}. Diretório: {}",
-        cwd.display()
-    ))?;
-    if !status.success() {
-        let details = if !output_text.trim().is_empty() { output_text.trim() }
-            else { "O Git encerrou sem fornecer detalhes em stdout ou stderr." };
-        bail!("{stage} falhou.\nComando: {display_command}\nDiretório: {}\nCódigo de saída: {:?}\nSaída original do Git:\n{}",
-            cwd.display(), status.code(), details);
-    }
-    Ok(())
+    let command_args = args.iter().map(OsString::from).collect::<Vec<_>>();
+    pty_process_output(
+        OsStr::new("git"),
+        &command_args,
+        cwd,
+        stage,
+        &display_command,
+        on_output,
+        true,
+    )
 }
 
 fn clone_source<F>(def: &Definition, source: &Path, on_output: &mut F) -> Result<()>
