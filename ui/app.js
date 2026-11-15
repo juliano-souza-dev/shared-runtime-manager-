@@ -1,20 +1,20 @@
 const invoke=window.__TAURI__?.core?.invoke,$=id=>document.getElementById(id);
 let state={applications:[],resources:[],providers:[],root:"",catalog:[],ecosystem:[],voices:{default_voice_id:null,voices:[]}};
 let processingStatus={status:"idle",progress:0,current:"Nenhuma operação executada",results:[]};
-let lastVoiceProcessingStatus="";
-const titles={overview:"Visão geral",ecosystem:"Ecossistema de aplicativos",apps:"Aplicativos registrados",apis:"Provedores de API",resources:"Biblioteca de dependências",voices:"Biblioteca de vozes",processing:"Central de processamentos"};
+let lastVoiceProcessingStatus="";\nlet monitoredProcesses=[];\nlet terminalLines={};\nlet terminalListenerReady=false;
+const titles={overview:"Visão geral",ecosystem:"Ecossistema de aplicativos",apps:"Aplicativos registrados",apis:"Provedores de API",resources:"Biblioteca de dependências",voices:"Biblioteca de vozes",processing:"Central de processamentos",monitor:"Monitor de aplicações"};
 function note(message,error=false){const n=$("notice");n.textContent=message;n.classList.remove("hidden","error");if(error)n.classList.add("error");clearTimeout(note.timer);note.timer=setTimeout(()=>n.classList.add("hidden"),6500)}
 async function act(command,args={},message){try{await invoke(command,args);if(message)note(message);await load()}catch(e){note(String(e),true);throw e}}
 function esc(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function empty(t){return '<div class="empty">'+esc(t)+'</div>'}
 function formatBytes(value){const bytes=Math.max(0,Number(value)||0);if(bytes<1024)return bytes+" B";const units=["KB","MB","GB","TB"];let size=bytes/1024,index=0;while(size>=1024&&index<units.length-1){size/=1024;index++}return size.toFixed(size>=100?0:1)+" "+units[index]}
 function isManagedSharedPath(path){const normalize=value=>{let result=String(value||"").replaceAll("\\","/").toLowerCase();while(result.endsWith("/"))result=result.slice(0,-1);return result};const root=normalize(state.root),candidate=normalize(path);return !!root&&(candidate===root||candidate.startsWith(root+"/"))}
-function page(p){document.querySelectorAll(".page").forEach(x=>x.classList.add("hidden"));$("page-"+p).classList.remove("hidden");$("page-title").textContent=titles[p];document.querySelectorAll(".nav").forEach(x=>x.classList.toggle("active",x.dataset.page===p));if(p==="processing")refreshProcessing()}
+function page(p){document.querySelectorAll(".page").forEach(x=>x.classList.add("hidden"));$("page-"+p).classList.remove("hidden");$("page-title").textContent=titles[p];document.querySelectorAll(".nav").forEach(x=>x.classList.toggle("active",x.dataset.page===p));if(p==="processing")refreshProcessing();if(p==="monitor")refreshMonitor()}
 function delay(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
 
 function showQueueResults(status){const box=$("queue-results"),list=$("queue-result-list");box.classList.remove("hidden");const results=status.results||[];list.innerHTML=results.map(r=>'<div class="queue-result"><span class="queue-dot '+(r.status==="installed"?"success":"failed")+'"></span><div><strong>'+esc(r.id)+'</strong><small>'+(r.status==="installed"?"Instalado ou já disponível":esc(r.message||"Falha na instalação"))+'</small></div><b>'+(r.status==="installed"?"Concluído":"Erro")+'</b></div>').join("")||empty("Nenhuma dependência processada.");}
 function appOpts(){return state.applications.map(a=>'<option value="'+esc(a.id)+'">'+esc(a.name)+' ('+esc(a.id)+')</option>').join("")}
-async function load(){if(!invoke){note("Abra o Shared Runtime Manager pelo executável desktop.",true);return}try{const [dashboard,catalog,voices,ecosystem]=await Promise.all([invoke("dashboard_data"),invoke("provider_catalog"),invoke("voice_library"),invoke("applications_catalog")]);state={...dashboard,catalog:catalog.providers||[],voices,ecosystem};render();await refreshProcessing()}catch(e){note(String(e),true)}}
+async function load(){if(!invoke){note("Abra o Shared Runtime Manager pelo executável desktop.",true);return}try{const [dashboard,catalog,voices,ecosystem]=await Promise.all([invoke("dashboard_data"),invoke("provider_catalog"),invoke("voice_library"),invoke("applications_catalog")]);state={...dashboard,catalog:catalog.providers||[],voices,ecosystem};render();await refreshProcessing();await refreshMonitor();setupTerminalListener()}catch(e){note(String(e),true)}}
 function renderProcessing(status){
  if(status)processingStatus=status;
  const p=processingStatus||{};
@@ -39,6 +39,51 @@ function renderProcessing(status){
  $("processing-history").innerHTML=history.length?history.map(item=>'<div class="queue-result"><span class="queue-dot '+(item.status==="completed"?"success":"failed")+'"></span><div><strong>'+esc(item.taskType==="voice-profile"?"Criação de perfil de voz":item.resourceId||item.application||"Fila de dependências")+'</strong><small>'+esc(item.current||item.status)+' · '+(item.finishedAt?new Date(item.finishedAt*1000).toLocaleString():"")+'</small></div><b>'+ (item.status==="completed"?"Concluído":item.status==="cancelled"?"Cancelado":"Falha")+'</b></div>').join(""):empty("As operações concluídas, canceladas ou com falha aparecerão aqui.");
 }
 async function refreshProcessing(){if(!invoke)return;try{const next=await invoke("dependency_queue_status");renderProcessing(next);if(next.taskType==="voice-profile"&&["completed","error"].includes(next.status)&&lastVoiceProcessingStatus!==next.status){lastVoiceProcessingStatus=next.status;if(next.status==="completed"){state.voices=await invoke("voice_library");renderVoices();note("Perfil de voz pronto e disponível na biblioteca.")}}else if(next.taskType==="voice-profile"&&next.status==="running"){lastVoiceProcessingStatus="running"}}catch(e){console.error("Não foi possível atualizar a Central de Processamentos:",e)}}
+function appendTerminalLine(payload){
+ const id=payload.appId;if(!id)return;
+ terminalLines[id]=terminalLines[id]||[];
+ terminalLines[id].push({stream:payload.stream||"stdout",line:payload.line||"",timestamp:payload.timestamp||0});
+ if(terminalLines[id].length>500)terminalLines[id].splice(0,terminalLines[id].length-500);
+ const output=document.querySelector('[data-terminal-output="'+CSS.escape(id)+'"]');
+ if(output){output.insertAdjacentHTML("beforeend",'<div class="terminal-line '+esc(payload.stream||"stdout")+'">'+esc(payload.line||"")+'</div>');output.scrollTop=output.scrollHeight}
+}
+async function setupTerminalListener(){
+ if(terminalListenerReady||!window.__TAURI__?.event?.listen)return;
+ terminalListenerReady=true;
+ await window.__TAURI__.event.listen("srm-terminal-output",event=>appendTerminalLine(event.payload||{}));
+}
+async function refreshMonitor(){
+ if(!invoke)return;
+ try{monitoredProcesses=await invoke("application_processes");renderMonitor()}catch(error){note("Não foi possível consultar os processos: "+String(error),true)}
+}
+function renderMonitor(){
+ const list=$("monitor-list");if(!list)return;
+ const count=$("monitor-nav-count");if(count){count.textContent=monitoredProcesses.length;count.classList.toggle("hidden",!monitoredProcesses.length)}
+ const apps=state.ecosystem||[];
+ const activeIds=new Set(monitoredProcesses.map(p=>p.appId));
+ const available=apps.filter(a=>a.installed&&a.mode==="dev");
+ const cards=available.map(app=>{
+  const process=monitoredProcesses.find(p=>p.appId===app.id);
+  const lines=terminalLines[app.id]||[];
+  const output=lines.map(line=>'<div class="terminal-line '+esc(line.stream)+'">'+esc(line.line)+'</div>').join("");
+  return '<article class="panel monitor-card"><div class="monitor-card-head"><div><h3>'+esc(app.name)+'</h3><small>'+esc(app.id)+' · '+esc(app.source_path||"")+'</small></div><span class="processing-badge '+(process?'running':'idle')+'">'+(process?'DEV ativo · PID '+process.pid:'Parado')+'</span></div><div class="terminal-window"><div class="terminal-title"><span></span><span></span><span></span><b>'+esc(app.id)+' / bash</b></div><div class="terminal-output" data-terminal-output="'+esc(app.id)+'">'+(output||'<div class="terminal-placeholder">A saída do Bash aparecerá aqui quando a aplicação for iniciada.</div>')+'</div></div><div class="monitor-actions">'+(process?'<button class="small-btn danger" data-stop-process="'+esc(app.id)+'">■ Encerrar processo</button>':'<button class="primary" data-start-process="'+esc(app.id)+'">▶ Iniciar em DEV</button>')+'<button class="small-btn" data-clear-terminal="'+esc(app.id)+'">Limpar console</button></div><form class="terminal-command" data-terminal-form="'+esc(app.id)+'"><span>$</span><input name="command" autocomplete="off" spellcheck="false" placeholder="Digite um comando Bash..."><button class="small-btn">Executar</button></form></article>';
+ }).join("");
+ list.innerHTML=cards||empty("Nenhum aplicativo instalado em modo DEV. Instale um aplicativo pelo Ecossistema para gerenciá-lo aqui.");
+}
+$("monitor-list").addEventListener("click",async e=>{
+ const start=e.target.closest("[data-start-process]"),stop=e.target.closest("[data-stop-process]"),clear=e.target.closest("[data-clear-terminal]");
+ if(clear){terminalLines[clear.dataset.clearTerminal]=[];renderMonitor();return}
+ const button=start||stop;if(!button)return;button.disabled=true;
+ try{if(start){await invoke("open_ecosystem_application",{appId:start.dataset.startProcess});note("Processo DEV iniciado pelo Bash.")}else{await invoke("stop_application_process",{appId:stop.dataset.stopProcess});note("Processo encerrado.")}await refreshMonitor()}
+ catch(error){note(String(error),true)}finally{button.disabled=false}
+});
+$("monitor-list").addEventListener("submit",async e=>{
+ const form=e.target.closest("[data-terminal-form]");if(!form)return;e.preventDefault();
+ const input=form.elements.command,command=input.value.trim();if(!command)return;
+ input.value="";
+ try{await invoke("run_application_shell_command",{appId:form.dataset.terminalForm,command})}
+ catch(error){note(String(error),true)}
+});
 function renderVoices(){
  const list=$("voice-list");if(!list)return;
  const voices=state.voices?.voices||[];
@@ -82,7 +127,7 @@ $("processing-current").addEventListener("click",async e=>{
 });
 $("ecosystem-list").addEventListener("click",async e=>{
  const open=e.target.closest("[data-open-ecosystem]");
- if(open){open.disabled=true;try{await invoke("open_ecosystem_application",{appId:open.dataset.openEcosystem});note("Aplicativo iniciado.")}catch(error){note(String(error),true)}finally{open.disabled=false}return}
+ if(open){open.disabled=true;try{await invoke("open_ecosystem_application",{appId:open.dataset.openEcosystem});note("Aplicação DEV iniciada no Bash integrado.");page("monitor")}catch(error){note(String(error),true)}finally{open.disabled=false}return}
  const install=e.target.closest("[data-install-mode]");if(!install)return;
  const appId=install.dataset.appId,mode=install.dataset.installMode;
  const label=mode==="dev"?"modo DEV":"modo Executável";
@@ -137,6 +182,6 @@ $("voice-list").onclick=async e=>{
  }
 };
 $("voices-refresh").onclick=load;
-$("processing-refresh").onclick=refreshProcessing;
+$("processing-refresh").onclick=refreshProcessing;\n$("monitor-refresh").onclick=refreshMonitor;
 load();
 setInterval(refreshProcessing,1000);
