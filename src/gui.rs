@@ -165,8 +165,8 @@ fn application_processes() -> Result<Vec<process_manager::ProcessInfo>, String> 
                 .join("\n")
         };
         let detail = format!(
-            "O processo do aplicativo '{}' foi encerrado com falha.\nPID: {}\nIniciado em (Unix): {}\nStatus: {}\n\nSaída capturada (stdout/stderr):\n{}",
-            process.name, process.pid, process.started_at, process.status, numbered_output
+            "O processo do aplicativo '{}' foi encerrado com falha.\nPID: {}\nIniciado em (Unix): {}\nStatus: {}\nCódigo de saída: {:?}\nSinal: {:?}\n\nSaída capturada (PTY):\n{}",
+            process.name, process.pid, process.started_at, process.status, process.exit_code, process.exit_signal, numbered_output
         );
         let _ = append_processing_log(
             "application-process",
