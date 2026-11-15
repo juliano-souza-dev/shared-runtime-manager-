@@ -47,7 +47,7 @@ fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
 
-fn emit_line(app: &AppHandle, app_id: &str, stream: &str, line: String) {
+pub fn emit_line(app: &AppHandle, app_id: &str, stream: &str, line: String) {
     let _ = app.emit("srm-terminal-output", serde_json::json!({
         "appId": app_id, "stream": stream, "line": line, "timestamp": now()
     }));
