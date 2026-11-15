@@ -130,7 +130,7 @@ $("processing-current").addEventListener("click",async e=>{
 });
 $("ecosystem-list").addEventListener("click",async e=>{
  const open=e.target.closest("[data-open-ecosystem]");
- if(open){open.disabled=true;try{await invoke("open_ecosystem_application",{appId:open.dataset.openEcosystem});note("Aplicação DEV iniciada no Bash integrado.");page("monitor")}catch(error){note(String(error),true)}finally{open.disabled=false}return}
+ if(open){open.disabled=true;try{const app=state.ecosystem.find(item=>item.id===open.dataset.openEcosystem);await invoke("open_ecosystem_application",{appId:open.dataset.openEcosystem});if(app?.mode==="dev"){note("Aplicação DEV iniciada ou já ativa no Bash integrado.");page("monitor")}else{note("Aplicativo executável iniciado.")}}catch(error){note(String(error),true)}finally{open.disabled=false}return}
  const install=e.target.closest("[data-install-mode]");if(!install)return;
  const appId=install.dataset.appId,mode=install.dataset.installMode;
  const label=mode==="dev"?"modo DEV":"modo Executável";
