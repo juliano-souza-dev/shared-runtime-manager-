@@ -13,7 +13,7 @@ struct Dashboard {
     providers: Vec<api::ProviderInfo>,
 }
 fn error_text(error: impl std::fmt::Display) -> String { error.to_string() }
-fn detailed_error(error: &anyhow::Error) -> String { format!("{error:#}\\n\\nDiagnóstico técnico:\\n{error:?}") }
+fn detailed_error(error: &anyhow::Error) -> String { format!("{error:#}\n\nDiagnóstico técnico:\n{error:?}") }
 
 fn append_processing_log(task_type: &str, title: &str, detail: &str) -> Result<(), String> {
     let root = manager::root().map_err(error_text)?;
