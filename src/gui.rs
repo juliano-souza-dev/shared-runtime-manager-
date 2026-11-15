@@ -22,10 +22,10 @@ fn append_processing_log(task_type: &str, title: &str, detail: &str) -> Result<(
     let mut logs: Vec<serde_json::Value> = if path.is_file() {
         serde_json::from_slice(&fs::read(&path).map_err(error_text)?).map_err(error_text)?
     } else { Vec::new() };
-    let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default().as_secs();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    let timestamp = now.as_secs();
     logs.insert(0, serde_json::json!({
-        "id": format!("{}-{}", timestamp, logs.len()),
+        "id": format!("{}-{}", now.as_millis(), logs.len()),
         "timestamp": timestamp,
         "taskType": task_type,
         "title": title,
