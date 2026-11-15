@@ -236,7 +236,7 @@ where
         while let Some(position) = pending.find('\n') {
             let line = pending[..position].trim_end_matches('\r').to_owned();
             pending.drain(..=position);
-            on_output("stdout", &line);
+            on_output("pty", &line);
         }
     }
     if !pending.is_empty() {
