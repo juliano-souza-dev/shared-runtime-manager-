@@ -218,6 +218,13 @@ fn prepare_shared(def: &Definition, source: &Path) -> Result<String> {
     super::manager::register_app_at_path(declared_id, def.name, &source.to_string_lossy())?;
     super::dependency_queue::enqueue_application(declared_id, &source.to_string_lossy())?;
     super::dependency_queue::process_queue().context("Falha ao resolver as dependências declaradas pelo aplicativo.")?;
+    let dependency_status = super::dependency_queue::status()?;
+    if dependency_status.get("status").and_then(Value::as_str) == Some("error") {
+        let details = dependency_status.get("results").and_then(Value::as_array)
+            .map(|items| items.iter().filter_map(|item| item.get("message").and_then(Value::as_str)).collect::<Vec<_>>().join("; "))
+            .unwrap_or_else(|| "Uma ou mais dependências não puderam ser instaladas.".to_owned());
+        bail!("A preparação das dependências falhou: {details}");
+    }
     Ok(declared_id.to_owned())
 }
 
