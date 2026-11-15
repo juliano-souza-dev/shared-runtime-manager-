@@ -45,7 +45,6 @@ fn append_processing_log(task_type: &str, title: &str, detail: &str) -> Result<(
         "title": title,
         "detail": detail
     }));
-    logs.truncate(200);
     let temporary = registry.join("processing-logs.json.tmp");
     fs::write(&temporary, serde_json::to_vec_pretty(&logs).map_err(error_text)?).map_err(error_text)?;
     if path.exists() { fs::remove_file(&path).map_err(error_text)?; }
