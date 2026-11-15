@@ -271,7 +271,7 @@ where F: FnMut(&str, &str) {
 
 fn ensure_source<F>(def: &Definition, source: &Path, dev_mode: bool, on_output: &mut F) -> Result<()>
 where F: FnMut(&str, &str) {
-    if source.join(".git").is_dir() {
+    if source.is_dir() && source.join(".git").exists() {
         if dev_mode {
             on_output("system", &format!("Sincronizando com origin/{}: a versão remota será a fonte da verdade.", def.branch));
             git_command_output(&["fetch", "--prune", "origin", &format!("+refs/heads/{0}:refs/remotes/origin/{0}", def.branch)], source, "Git Fetch", on_output)?;
@@ -279,7 +279,16 @@ where F: FnMut(&str, &str) {
             git_command_output(&["reset", "--hard", &format!("origin/{}", def.branch)], source, "Git Reset --hard", on_output)?;
             git_command_output(&["clean", "-fdx"], source, "Git Clean", on_output)?;
         } else {
-            command_output("git", &["-C", source.to_string_lossy().as_ref(), "pull", "--ff-only", "origin", def.branch], source.parent().unwrap_or(source), "atualização do repositório", on_output)?;
+            let source_text = source.to_string_lossy().into_owned();
+            let git_cwd = source.parent().unwrap_or(source);
+            on_output("system", &format!("Validando repositório antes da atualização: {}", source.display()));
+            git_command_output(&["-C", &source_text, "rev-parse", "--show-toplevel"], git_cwd, "Validação do diretório Git (rev-parse)", on_output)
+                .with_context(|| format!("A pasta registrada como código-fonte não é um repositório Git válido. Caminho esperado: {}. Verifique se o diretório existe e contém .git (pasta ou arquivo de worktree).", source.display()))?;
+            git_command_output(&["-C", &source_text, "remote", "get-url", "origin"], git_cwd, "Validação do remoto origin", on_output)
+                .with_context(|| format!("O repositório em {} não possui um remoto 'origin' válido.", source.display()))?;
+            git_command_output(&["-C", &source_text, "status", "--short", "--branch"], git_cwd, "Diagnóstico do estado local antes do pull", on_output)?;
+            git_command_output(&["-C", &source_text, "pull", "--ff-only", "origin", def.branch], git_cwd, "Atualização do repositório (Git Pull --ff-only)", on_output)
+                .with_context(|| format!("Não foi possível atualizar o repositório. Diretório validado: {}. Remoto esperado: {}. Branch esperada: {}. O Git precisa informar se a causa foi autenticação, rede, remoto divergente ou histórico que não permite fast-forward.", source.display(), def.repository, def.branch))?;
         }
     } else {
         if source.exists() {
