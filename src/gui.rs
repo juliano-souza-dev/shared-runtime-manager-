@@ -47,7 +47,9 @@ fn install_ecosystem_application(app: tauri::AppHandle, app_id: String, mode: St
     }
     dependency_queue::begin_operation();
     std::thread::spawn(move || {
-        match applications::install_with_output(&app_id, &mode, |stream, line| {\n            process_manager::emit_line(&app, &app_id, stream, line.to_owned());\n        }) {
+        match applications::install_with_output(&app_id, &mode, |stream, line| {
+            process_manager::emit_line(&app, &app_id, stream, line.to_owned());
+        }) {
             Ok(()) if mode == "dev" => {
                 match applications::dev_spec(&app_id).and_then(|(cwd, name, command)| {
                     process_manager::start_dev(app.clone(), app_id.clone(), name, cwd, command)
