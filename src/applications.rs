@@ -271,7 +271,15 @@ where
 }
 
 fn command_output<F>(program: &str, args: &[&str], cwd: &Path, stage: &str, on_output: &mut F) -> Result<()>
-where F: FnMut(&str, &str) {
+where
+    F: FnMut(&str, &str),
+{
+    // npm install/build can legitimately take several minutes. Unlike the old PTY
+    // reader, this runner drains stdout and stderr concurrently and keeps checking
+    // the child process, so a quiet output stream cannot freeze the installation UI.
+    const COMMAND_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+    const MAX_CAPTURED_OUTPUT: usize = 1024 * 1024;
+
     let bash = super::shell::bash_path()
         .with_context(|| format!("{stage} exige Bash. Instale Git Bash ou configure SRM_BASH_PATH."))?;
     let command = std::iter::once(program)
@@ -280,21 +288,145 @@ where F: FnMut(&str, &str) {
         .collect::<Vec<_>>()
         .join(" ");
     let display_command = format!("{program} {}", args.join(" "));
-    let command_args = vec![
+    let command_args = [
         OsString::from("--noprofile"),
         OsString::from("--norc"),
         OsString::from("-lc"),
-        OsString::from(command),
+        OsString::from(format!("exec {command}")),
     ];
-    pty_process_output(
-        bash.as_os_str(),
-        &command_args,
-        cwd,
-        stage,
-        &display_command,
-        on_output,
-        false,
-    )
+
+    on_output("system", &format!("{stage}: iniciando processo com captura contínua de saída"));
+    let mut child = Command::new(&bash)
+        .args(command_args)
+        .current_dir(cwd)
+        .env("CI", "1")
+        .env("npm_config_audit", "false")
+        .env("npm_config_fund", "false")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!(
+            "{stage}: não foi possível iniciar o processo.\nComando: {display_command}\nDiretório: {}",
+            cwd.display()
+        ))?;
+
+    let stdout = child.stdout.take().context("Não foi possível capturar stdout do processo.")?;
+    let stderr = child.stderr.take().context("Não foi possível capturar stderr do processo.")?;
+    let (sender, receiver) = mpsc::channel::<(&'static str, Vec<u8>)>();
+
+    let stdout_sender = sender.clone();
+    let stdout_reader = thread::spawn(move || {
+        let mut reader = stdout;
+        let mut buffer = [0u8; 8192];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(size) => {
+                    if stdout_sender.send(("stdout", buffer[..size].to_vec())).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    let stderr_reader = thread::spawn(move || {
+        let mut reader = stderr;
+        let mut buffer = [0u8; 8192];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(size) => {
+                    if sender.send(("stderr", buffer[..size].to_vec())).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let started = Instant::now();
+    let mut captured = String::new();
+    let mut timed_out = false;
+
+    loop {
+        match receiver.recv_timeout(Duration::from_millis(100)) {
+            Ok((stream, bytes)) => {
+                let output = String::from_utf8_lossy(&bytes);
+                for line in output.lines() {
+                    if !line.trim().is_empty() {
+                        on_output(stream, line);
+                    }
+                }
+                captured.push_str(&output);
+                if captured.len() > MAX_CAPTURED_OUTPUT {
+                    let mut excess = captured.len() - MAX_CAPTURED_OUTPUT;
+                    while excess < captured.len() && !captured.is_char_boundary(excess) {
+                        excess += 1;
+                    }
+                    captured.drain(..excess);
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {}
+        }
+
+        if let Some(status) = child.try_wait().with_context(|| format!(
+            "{stage}: falha ao consultar o processo.\nComando: {display_command}"
+        ))? {
+            while let Ok((stream, bytes)) = receiver.try_recv() {
+                let output = String::from_utf8_lossy(&bytes);
+                for line in output.lines() {
+                    if !line.trim().is_empty() {
+                        on_output(stream, line);
+                    }
+                }
+                captured.push_str(&output);
+            }
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+
+            if !status.success() {
+                bail!(
+                    "{stage} falhou.\nComando: {display_command}\nDiretório: {}\nCódigo de saída: {status}\n\nÚltima saída capturada:\n{}",
+                    cwd.display(),
+                    if captured.trim().is_empty() { "O processo não forneceu saída.".to_owned() } else { captured }
+                );
+            }
+            return Ok(());
+        }
+
+        if started.elapsed() >= COMMAND_TIMEOUT {
+            timed_out = true;
+            let _ = child.kill();
+            let _ = child.wait();
+            break;
+        }
+    }
+
+    if timed_out {
+        // "exec" above makes Bash hand its process slot to npm/the requested tool,
+        // so killing this child also closes the inherited pipes.
+        let _ = stdout_reader.join();
+        let _ = stderr_reader.join();
+        while let Ok((stream, bytes)) = receiver.try_recv() {
+            let output = String::from_utf8_lossy(&bytes);
+            for line in output.lines() {
+                if !line.trim().is_empty() {
+                    on_output(stream, line);
+                }
+            }
+            captured.push_str(&output);
+        }
+        bail!(
+            "{stage}: o processo excedeu o limite de 30 minutos e foi encerrado.\nComando: {display_command}\nDiretório: {}\nÚltima saída capturada:\n{}",
+            cwd.display(),
+            if captured.trim().is_empty() { "Nenhuma saída recebida.".to_owned() } else { captured }
+        );
+    }
+
+    Ok(())
 }
 
 fn git_command_output<F>(args: &[&str], cwd: &Path, stage: &str, on_output: &mut F) -> Result<()>
@@ -583,7 +715,7 @@ where F: FnMut(&str, &str) {
     on_output("system", "Preparando configurações e dependências compartilhadas...");
     let shared_app_id = prepare_shared(def, &source)?;
     write_status("running", "Instalando dependências próprias do aplicativo", def.id, 45, None)?;
-    on_output("system", "Instalando dependências Node.js pelo Bash...");
+    on_output("system", "Instalando dependências Node.js com captura contínua de saída...");
     let workdir = install_node_dependencies(def, &source, &mut on_output)?;
 
     let launch_path = if mode == "executable" {
