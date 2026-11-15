@@ -29,3 +29,5 @@
 .processing-actions{display:flex;justify-content:flex-end;margin-top:17px}
 .processing-actions button{min-width:145px}
 .processing-actions button:disabled{opacity:.55;cursor:wait}
+
+.ecosystem-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}.ecosystem-card{min-width:0}.ecosystem-description{font-size:11px;color:#aeb8c9;line-height:1.6;margin:10px 0}.ecosystem-card .meta{overflow-wrap:anywhere}.ecosystem-card .meta a{color:#aebaff}.ecosystem-actions{margin-top:15px;flex-wrap:wrap}.ecosystem-actions .primary{background:#8796f3;color:#101628;border-color:#8796f3}.ecosystem-actions .small-btn{font-size:10px}
