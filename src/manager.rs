@@ -245,6 +245,7 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
         bail!("Registered application directory is no longer available: {}", app_root.display());
     }
     let config_path = application_config_path(shared_root, app_id);
+    fs::create_dir_all(config_path.parent().expect("central config has a parent"))?;
     let mut document: serde_json::Value = if config_path.exists() {
         let bytes = fs::read(&config_path)
             .with_context(|| format!("Could not read existing {}", config_path.display()))?;
