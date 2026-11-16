@@ -251,6 +251,13 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
             .with_context(|| format!("Could not read existing {}", config_path.display()))?;
         serde_json::from_slice(&bytes)
             .with_context(|| format!("Existing {} contains invalid JSON; refusing to overwrite it", config_path.display()))?
+    } else if app_root.join("shared.config.json").is_file() {
+        // One-time migration path: preserve existing project-local settings when
+        // moving an older registration into the central Shared Runtime directory.
+        let legacy_path = app_root.join("shared.config.json");
+        serde_json::from_slice(&fs::read(&legacy_path)
+            .with_context(|| format!("Could not read legacy config {}", legacy_path.display()))?)
+            .with_context(|| format!("Legacy config {} contains invalid JSON", legacy_path.display()))?
     } else {
         let template_path = [
             app_root.join("shared-example.config.json"),
