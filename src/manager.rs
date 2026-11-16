@@ -85,7 +85,7 @@ pub fn root() -> Result<PathBuf> {
 
 fn ensure_layout() -> Result<PathBuf> {
     let base = root()?;
-    for directory in ["registry", "cache", "tools", "runtimes", "models", "media-shared", "voices"] {
+    for directory in ["registry", "applications", "cache", "tools", "runtimes", "models", "media-shared", "voices"] {
         fs::create_dir_all(base.join(directory))?;
     }
     Ok(base)
@@ -189,7 +189,7 @@ pub fn register_app(app_id: &str, name: &str) -> Result<()> {
 }
 
 
-/// Register an application and provision its root-level Shared configuration file.
+/// Register an application and provision its centrally shared configuration file.
 pub fn register_app_at_path(app_id: &str, name: &str, installation_path: &str) -> Result<()> {
     validate_id(app_id)?;
     if name.trim().is_empty() {
@@ -219,8 +219,12 @@ pub fn register_app_at_path(app_id: &str, name: &str, installation_path: &str) -
     write_registry(&base, &registry)?;
     write_application_config(&base, app_id, &app_snapshot)?;
     println!("Application registered and configured: {app_id} ({})", name.trim());
-    println!("Configuration: {}", canonical_path.join("shared.config.json").display());
+    println!("Configuration: {}", application_config_path(&base, app_id).display());
     Ok(())
+}
+
+fn application_config_path(shared_root: &Path, app_id: &str) -> PathBuf {
+    shared_root.join("applications").join(app_id).join("shared.config.json")
 }
 
 /// Refresh generated configuration files after the shared resource registry changes.
@@ -240,14 +244,24 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
     if !app_root.is_dir() {
         bail!("Registered application directory is no longer available: {}", app_root.display());
     }
-    let config_path = app_root.join("shared.config.json");
+    let config_path = application_config_path(shared_root, app_id);
     let mut document: serde_json::Value = if config_path.exists() {
         let bytes = fs::read(&config_path)
             .with_context(|| format!("Could not read existing {}", config_path.display()))?;
         serde_json::from_slice(&bytes)
             .with_context(|| format!("Existing {} contains invalid JSON; refusing to overwrite it", config_path.display()))?
     } else {
-        serde_json::json!({})
+        let template_path = [
+            app_root.join("shared-example.config.json"),
+            app_root.join("shared.config.example.json"),
+        ].into_iter().find(|path| path.is_file());
+        if let Some(template_path) = template_path {
+            serde_json::from_slice(&fs::read(&template_path)
+                .with_context(|| format!("Could not read {}", template_path.display()))?)
+                .with_context(|| format!("{} contains invalid JSON", template_path.display()))?
+        } else {
+            serde_json::json!({})
+        }
     };
     if !document.is_object() {
         bail!("{} must contain a JSON object at its root.", config_path.display());
@@ -390,7 +404,7 @@ pub fn applications() -> Result<Vec<ApplicationInfo>> {
         let config_path = if app.installation_path.is_empty() {
             String::new()
         } else {
-            PathBuf::from(&app.installation_path).join("shared.config.json").display().to_string()
+            application_config_path(&base, &id).display().to_string()
         };
         let mut linked = app.resources.clone();
         if !config_path.is_empty() {
@@ -472,7 +486,7 @@ pub fn delete_resource(resource_id: &str) -> Result<()> {
             continue;
         }
         if app.installation_path.is_empty() { continue; }
-        let config_path = PathBuf::from(&app.installation_path).join("shared.config.json");
+        let config_path = application_config_path(&base, app_id);
         let Ok(bytes) = fs::read(&config_path) else { continue; };
         let Ok(config) = serde_json::from_slice::<serde_json::Value>(&bytes) else { continue; };
         let top = config.get("dependencies").and_then(serde_json::Value::as_array);
@@ -1029,7 +1043,7 @@ pub fn unregister_application(app_id: &str) -> Result<()> {
         .ok_or_else(|| anyhow!("Application '{app_id}' is not registered."))?;
     write_registry(&base, &registry)?;
     if !app.installation_path.is_empty() {
-        let config = PathBuf::from(&app.installation_path).join("shared.config.json");
+        let config = application_config_path(&base, app_id);
         if config.is_file() {
             fs::remove_file(&config)
                 .with_context(|| format!("Could not remove generated config {}", config.display()))?;
