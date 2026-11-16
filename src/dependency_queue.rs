@@ -67,10 +67,13 @@ fn dependencies_for(config: &Value) -> Vec<String> {
 /// inherit the template's required/version policy so changed requirements take effect
 /// on both first registration and later synchronization.
 pub(crate) fn merge_example_dependencies(installation_path: &str, config: &mut Value) -> Result<()> {
-    let example_path = PathBuf::from(installation_path).join("shared.config.example.json");
-    if !example_path.is_file() {
+    let project_root = PathBuf::from(installation_path);
+    let Some(example_path) = [
+        project_root.join("shared-example.config.json"),
+        project_root.join("shared.config.example.json"),
+    ].into_iter().find(|path| path.is_file()) else {
         return Ok(());
-    }
+    };
     let example: Value = serde_json::from_slice(&fs::read(&example_path)
         .with_context(|| format!("Could not read {}", example_path.display()))?)
         .with_context(|| format!("{} contains invalid JSON", example_path.display()))?;
@@ -108,7 +111,8 @@ pub(crate) fn merge_example_dependencies(installation_path: &str, config: &mut V
 pub fn enqueue_application(app_id: &str, installation_path: &str) -> Result<()> {
     let _guard = QUEUE_LOCK.lock().map_err(|_| anyhow::anyhow!("Dependency queue is busy"))?;
     let root = root()?;
-    let config_path = PathBuf::from(installation_path).join("shared.config.json");
+    let config_path = root.join("applications").join(app_id).join("shared.config.json");
+    fs::create_dir_all(config_path.parent().expect("central config has a parent"))?;
     let mut config: Value = serde_json::from_slice(&fs::read(&config_path)
         .with_context(|| format!("Could not read {}", config_path.display()))?)?;
     merge_example_dependencies(installation_path, &mut config)?;
@@ -204,7 +208,7 @@ fn refresh_registered_configs(root: &Path, resolved: &Value) -> Result<()> {
     for (app_id, app) in applications {
         let installation = app.get("installation_path").and_then(Value::as_str).unwrap_or("");
         if installation.is_empty() { continue; }
-        let config_path = PathBuf::from(installation).join("shared.config.json");
+        let config_path = root.join("applications").join(&app_id).join("shared.config.json");
         if !config_path.is_file() { continue; }
         let mut config: Value = match serde_json::from_slice::<Value>(&fs::read(&config_path)?) {
             Ok(value) if value.is_object() => value,
