@@ -263,8 +263,6 @@ pub fn install_dependency(resource_id: &str, app_id: Option<&str>) -> Result<()>
     if let Some(id) = app_id {
         let application = registry.pointer(&format!("/applications/{id}"))
             .ok_or_else(|| anyhow::anyhow!("Application '{id}' is not registered in Shared Runtime"))?;
-        let installation = application.get("installation_path").and_then(Value::as_str)
-            .ok_or_else(|| anyhow::anyhow!("Application '{id}' has no registered installation path"))?;
         let config_path = root.join("applications").join(id).join("shared.config.json");
         let config: Value = serde_json::from_slice(&fs::read(&config_path)
             .with_context(|| format!("Could not read {}", config_path.display()))?)?;
