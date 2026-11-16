@@ -6,7 +6,7 @@ The design goal is one active shared installation/configuration per resource, co
 
 ## Current status
 
-**Version 0.6.0.** Shared Runtime manages local dependencies and provider credentials. API keys are protected with Windows DPAPI, stored in the local Shared registry, and provisioned in encrypted form only to each authorized application's `shared.config.json`. Application authorization is explicit.
+**Version 0.6.0.** Shared Runtime manages local dependencies and provider credentials. API keys are protected with Windows DPAPI, stored in the local Shared registry, and provisioned in encrypted form only to each authorized application's centrally stored `shared.config.json`. Application authorization is explicit.
 
 The API feature is an initial centralized storage layer. Direct application SDK integration, compatibility declarations, process-use leases, coordinated dependency updates, and a local inference service remain future work.
 
@@ -27,7 +27,7 @@ On Windows, data is stored under:
     └── sox/
 ```
 
-API secrets are encrypted with **Windows DPAPI** for the current Windows user. The encrypted credential is stored in the local API registry and copied into the `shared.apiProviders` section of each authorized application's `shared.config.json`. Plaintext keys are never written to disk, command-line arguments, or logs.
+API secrets are encrypted with **Windows DPAPI** for the current Windows user. The encrypted credential is stored in the local API registry and copied into the `shared.apiProviders` section of each authorized application's centrally stored `shared.config.json`. Plaintext keys are never written to disk, command-line arguments, or logs.
 
 ## Build
 
@@ -47,7 +47,7 @@ srm register ttk-media --name "TTK Media" --path "C:\\Projects\\ttk-media"
 srm register nova-generator --name "Nova Generator" --path "C:\\Projects\\nova-generator"
 ```
 
-Each registered application must provide its absolute installation directory. Shared Runtime creates or updates a `shared.config.json` file in that directory. The file contains the application identity and absolute paths to the shared root, managed directories, registries, and resources explicitly linked to that application.
+Each registered application must provide its absolute installation directory. Shared Runtime creates or updates a `shared.config.json` file in that directory. The file is stored at `%LOCALAPPDATA%\\JulianoDev\\SharedRuntime\\applications\\<app-id>\\shared.config.json`, not in the project root. It contains the application identity and absolute paths to the shared root, managed directories, registries, and resources explicitly linked to that application. Shared reads dependency declarations from `shared-example.config.json` or the legacy `shared.config.example.json` in the registered project.
 
 Example:
 
@@ -154,7 +154,7 @@ Shared creates an isolated Python virtual environment under `runtimes/forced-ali
 
 The worker accepts one alignment request per input line and returns one JSON result per output line. It keeps acoustic alignment models loaded for the lifetime of the process, cached by language. Hugging Face and Torch model caches are stored under the central Shared `models/forced-alignment` directory. CPU is supported; CUDA is selected automatically when available.
 
-The resolved runtime directory is provisioned to declaring applications as `shared.resources.forced-alignment`. Applications must read this absolute path from their own generated `shared.config.json`; they must not construct or hardcode the Shared root, Python executable, worker path, or model-cache path.
+The resolved runtime directory is provisioned to declaring applications as `shared.resources.forced-alignment`. Applications must read this absolute path from their generated central `shared.config.json`; they must not construct or hardcode the Shared root, Python executable, worker path, or model-cache path.
 
 The resource is opt-in at the application-contract level. Applications declaring `required: false` do not download PyTorch/WhisperX during registration or synchronization and can install it explicitly when needed. Applications declaring `required: true` automatically queue the resource during registration and synchronization. For example, Nova Generator declares it as required because word-level alignment is part of its workflow.
 
@@ -209,7 +209,7 @@ The 1.7B CustomVoice model provides its preset speaker voices and supports Engli
 
 Both workers stay alive and accept one JSON object per standard-input line. Each request requires `text` and `output_path`. Piper uses its installed default English voice. Qwen accepts optional `language` (default `English`) and `speaker` (default `Aiden`). Each response is one JSON object on standard output with `status`, the request `id`, and either the generated file path or an error.
 
-Applications must read the absolute runtime and model paths from their own generated `shared.config.json` and the runtime's `runtime.json`. They must not hardcode Shared directories or reconstruct paths.
+Applications must read the absolute runtime and model paths from their generated central `shared.config.json` and the runtime's `runtime.json`. They must not hardcode Shared directories or reconstruct paths.
 
 Both dependencies are optional by default. Declaring them with `required: false` keeps them out of initial registration and synchronization downloads. They can be installed on demand from the Shared dependency library or with the CLI commands above; the application must declare the resource before using the `--app` option. If a project declares one with `required: true`, Shared queues it during registration or synchronization. The application never calls Shared Runtime Manager directly: it reads the resolved paths that Shared writes into its own `shared.config.json`. Model downloads are large, especially Qwen3-TTS, and may take time depending on the network.
 
@@ -265,7 +265,7 @@ srm api resolve groq --app ttk-media
 
 ### Application integration contract
 
-Applications consume provider settings from their own generated `shared.config.json`; the Shared desktop application does not need to remain open.
+Applications consume provider settings from their generated central `shared.config.json`; the Shared desktop application does not need to remain open.
 
 The Rust library exposes these functions:
 
@@ -325,7 +325,7 @@ The first desktop release is a local management interface, not a background Wind
 
 ## Application dependency contract and first registration
 
-When an application is registered with an absolute path, Shared creates or updates its root-level `shared.config.json`, adds the declared dependencies to a durable queue, and returns control without waiting for downloads. The queue installs each unique dependency centrally, then refreshes the configs of every registered application that declares it. Individual dependency failures are recorded without preventing the remaining dependencies from being processed. If the `dependencies` array is absent, Shared writes this default contract:
+When an application is registered with an absolute path, Shared reads its checked-in example config, creates or updates the central `applications/<app-id>/shared.config.json`, adds the declared dependencies to a durable queue, and returns control without waiting for downloads. The queue installs each unique dependency centrally, then refreshes the configs of every registered application that declares it. Individual dependency failures are recorded without preventing the remaining dependencies from being processed. If the `dependencies` array is absent, Shared writes this default contract:
 
 ```json
 {
@@ -363,7 +363,7 @@ The provider catalog is metadata, not an installer: cloud APIs are accessed over
 
 ## Synchronizing registered applications and removing dependencies
 
-The desktop **Applications** page provides a **Synchronize dependencies** action for every registered application. It re-reads the application's existing `shared.config.json`, merges dependency IDs and required/version policies from the checked-in `shared.config.example.json` when present, preserves additional custom dependencies, queues the required resources, reuses binaries already found on PATH or in Shared, and refreshes the resolved dependency links. This also applies template changes to applications that were registered before a dependency was added or promoted to required. If the configuration file is missing, Shared recreates its generated configuration before queueing the synchronization.
+The desktop **Applications** page provides a **Synchronize dependencies** action for every registered application. It re-reads the central `applications/<app-id>/shared.config.json`, merges dependency IDs and required/version policies from `shared-example.config.json` or `shared.config.example.json` in the project, preserves additional custom dependencies, queues the required resources, reuses binaries already found on PATH or in Shared, and refreshes the resolved dependency links. This also applies template changes to applications that were registered before a dependency was added or promoted to required. If the configuration file is missing, Shared recreates its generated configuration before queueing the synchronization.
 
 The application list shows dependencies declared by the project as well as dependencies already resolved in its configuration. The dependency library identifies which applications still reference each dependency.
 
@@ -383,7 +383,7 @@ Para criar um perfil:
 4. Informe o texto exato da gravação para preparar o prompt de clonagem.
 5. O Shared normaliza o áudio, prepara o perfil e o guarda em `SharedRuntime/voices/<voice-id>`.
 
-Os aplicativos registrados recebem os perfis disponíveis em seu próprio `shared.config.json`, no campo `shared.voices`. O campo `default` contém o identificador da voz padrão e `available` contém nomes amigáveis e caminhos absolutos para os perfis, runtime, modelo, Python e executor. Os arquivos de voz não são copiados para os projetos consumidores.
+Os aplicativos registrados recebem os perfis disponíveis em seu `shared.config.json` central, no campo `shared.voices`. O campo `default` contém o identificador da voz padrão e `available` contém nomes amigáveis e caminhos absolutos para os perfis, runtime, modelo, Python e executor. Os arquivos de voz não são copiados para os projetos consumidores.
 
 A prévia de áudio é gerada pelo mesmo perfil salvo. A transcrição de referência deve corresponder ao áudio enviado; gravações próprias ou com autorização são as únicas que devem ser utilizadas.
 
