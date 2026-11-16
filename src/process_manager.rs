@@ -82,7 +82,6 @@ pub fn emit_line(app: &AppHandle, app_id: &str, stream: &str, line: String) {
 
 
 pub fn start_dev(app: AppHandle, app_id: String, name: String, cwd: PathBuf, command: String) -> Result<ProcessInfo> {
-    let bash = bash_path()?;
     let mut registry = processes().lock().map_err(|_| anyhow!("O registro de processos está indisponível."))?;
     if let Some(existing) = registry.get_mut(&app_id) {
         if existing.child.try_wait()?.is_none() {
@@ -98,14 +97,27 @@ pub fn start_dev(app: AppHandle, app_id: String, name: String, cwd: PathBuf, com
         pixel_width: 0,
         pixel_height: 0,
     }).context("Não foi possível criar o terminal PTY para iniciar a aplicação.")?;
-    let mut process_command = CommandBuilder::new(bash);
-    process_command.args(["--noprofile", "--norc", "-lc"]);
     #[cfg(windows)]
-    process_command.arg(&command);
+    let mut process_command = {
+        // npm is exposed as npm.cmd on Windows. Run it through the native
+        // command interpreter, not Bash/WSL, while keeping stdout attached to the PTY.
+        let mut process = CommandBuilder::new("cmd.exe");
+        process.args(["/D", "/C"]);
+        process.arg(&command);
+        process
+    };
     #[cfg(not(windows))]
-    process_command.arg(format!("exec {command}"));
+    let mut process_command = {
+        let bash = bash_path()?;
+        let mut process = CommandBuilder::new(bash);
+        process.args(["--noprofile", "--norc", "-lc"]);
+        process.arg(format!("exec {command}"));
+        process
+    };
     process_command.cwd(cwd.clone());
     process_command.env("TERM", "xterm-256color");
+    process_command.env("npm_config_audit", "false");
+    process_command.env("npm_config_fund", "false");
 
     let child = pair.slave.spawn_command(process_command)
         .with_context(|| format!("Não foi possível iniciar {name} dentro do terminal PTY em {}.", cwd.display()))?;
@@ -142,7 +154,8 @@ pub fn start_dev(app: AppHandle, app_id: String, name: String, cwd: PathBuf, com
         emit_line(&output_app, &output_id, "system", "Saída do processo DEV encerrada.".to_owned());
     });
 
-    emit_line(&app, &app_id, "system", format!("Aplicação iniciada em terminal PTY · PID {pid} · {}", cwd.display()));
+    emit_line(&app, &app_id, "command", format!("$ {command}"));
+    emit_line(&app, &app_id, "system", format!("Aplicação iniciada em terminal PTY nativo · PID {pid} · {}", cwd.display()));
     registry.insert(app_id, ManagedProcess { child, _master: master, info: info.clone() });
     Ok(info)
 }
