@@ -294,7 +294,6 @@ where
 
     let mut child = process
         .current_dir(cwd)
-        .env("CI", "1")
         .env("npm_config_audit", "false")
         .env("npm_config_fund", "false")
         .stdout(Stdio::piped())
