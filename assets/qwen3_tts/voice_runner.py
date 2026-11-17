@@ -1,4 +1,4 @@
-"""Persistent JSON-lines worker for Qwen3-TTS Base voice profiles."""
+"""Persistent JSON-lines worker for Qwen3-TTS Base and VoiceDesign profiles."""
 import contextlib
 import json
 import os
@@ -32,16 +32,31 @@ def handle_request(model, profile_path: Path, request: dict, set_stage) -> dict:
             "voice_clone_mode": "speaker_only",
         }
 
+    if operation == "prepare_voice_design":
+        instruct = str(request.get("instruct", "")).strip()
+        if not 10 <= len(instruct) <= 800:
+            raise ValueError("A descrição da voz precisa ter entre 10 e 800 caracteres.")
+        set_stage("voice_design_profile_saving")
+        (profile_path / "voice_design_instruct.txt").write_text(instruct, encoding="utf-8")
+        return {"status": "completed", "profile_path": str(profile_path), "voice_mode": "voice_design"}
+
     if operation == "synthesize":
+        voice_mode = str(request.get("voice_mode", "voice_clone"))
+        if voice_mode == "voice_design":
+            instruct = str(request.get("instruct") or (profile_path / "voice_design_instruct.txt").read_text(encoding="utf-8")).strip()
+            if not 10 <= len(instruct) <= 800:
+                raise ValueError("A descrição da voz precisa ter entre 10 e 800 caracteres.")
+        elif voice_mode != "voice_clone":
+            raise ValueError("Modo de voz Qwen desconhecido.")
         prompt_path = profile_path / "voice_clone_prompt.pt"
         set_stage("voice_prompt_loading")
-        prompt = torch.load(prompt_path, map_location="cpu", weights_only=False)
+        prompt = torch.load(prompt_path, map_location="cpu", weights_only=False) if voice_mode == "voice_clone" else None
         # Rebuild legacy profiles once using speaker-only conditioning. This
         # prevents reference-room reverberation from being baked into future
         # generations while preserving the existing profile and reference WAV.
         mode_path = profile_path / "voice_clone_mode.txt"
         current_mode = mode_path.read_text(encoding="utf-8").strip() if mode_path.is_file() else ""
-        if current_mode != "speaker_only":
+        if voice_mode == "voice_clone" and current_mode != "speaker_only":
             reference_audio = request.get("reference_audio") or str(profile_path / "reference.wav")
             reference_text = str(request.get("reference_text") or "").strip()
             # Some existing app integrations send only the profile directory.
@@ -58,7 +73,7 @@ def handle_request(model, profile_path: Path, request: dict, set_stage) -> dict:
                 set_stage("voice_prompt_saving")
                 torch.save(prompt, prompt_path)
                 mode_path.write_text("speaker_only", encoding="utf-8")
-        if not isinstance(prompt, (list, tuple)) or not prompt:
+        if voice_mode == "voice_clone" and (not isinstance(prompt, (list, tuple)) or not prompt):
             raise ValueError("O perfil de voz contém um prompt Qwen inválido ou vazio.")
         text = str(request["text"]).strip()
         language = str(request.get("language", "English")).strip() or "English"
@@ -68,21 +83,23 @@ def handle_request(model, profile_path: Path, request: dict, set_stage) -> dict:
             text += "."
         set_stage("voice_generation")
         with contextlib.redirect_stdout(sys.stderr):
-            wavs, sample_rate = model.generate_voice_clone(
-                text=text,
-                language=language,
-                voice_clone_prompt=prompt,
-                non_streaming_mode=True,
-                do_sample=True,
-                top_k=50,
-                top_p=0.95,
-                temperature=0.85,
-                repetition_penalty=1.08,
-                subtalker_dosample=True,
-                subtalker_top_k=50,
-                subtalker_top_p=0.95,
-                subtalker_temperature=0.85,
-            )
+            if voice_mode == "voice_design":
+                segment_instruct = instruct
+                if language.lower() == "english":
+                    suffix = "Keep the same speaker identity and vocal timbre; use clear, natural American English pronunciation."
+                    if suffix.lower() not in segment_instruct.lower() and len(segment_instruct) + len(suffix) + 2 <= 800:
+                        segment_instruct = segment_instruct.rstrip(". ") + ". " + suffix
+                wavs, sample_rate = model.generate_voice_design(
+                    text=text, language=language, instruct=segment_instruct, do_sample=True
+                )
+            else:
+                wavs, sample_rate = model.generate_voice_clone(
+                    text=text, language=language, voice_clone_prompt=prompt,
+                    non_streaming_mode=True, do_sample=True, top_k=50, top_p=0.95,
+                    temperature=0.85, repetition_penalty=1.08,
+                    subtalker_dosample=True, subtalker_top_k=50,
+                    subtalker_top_p=0.95, subtalker_temperature=0.85,
+                )
         set_stage("audio_pacing")
         # Qwen3-TTS Base does not expose a native speech-rate argument. Use a
         # pitch-preserving phase vocoder for a modest, configurable slowdown.
@@ -125,12 +142,18 @@ def main() -> int:
         torch.set_num_interop_threads(1)
         stage = "model_loading"
         with contextlib.redirect_stdout(sys.stderr):
-            model = Qwen3TTSModel.from_pretrained(
-                str(model_path),
-                device_map={"": "cpu"},
-                dtype=torch.float32,
-                attn_implementation="sdpa",
-            )
+            try:
+                model = Qwen3TTSModel.from_pretrained(
+                    str(model_path), device_map="cpu", dtype=torch.float32,
+                    low_cpu_mem_usage=True,
+                )
+                print("voice_loader=optimized", file=sys.stderr, flush=True)
+            except Exception as optimized_error:
+                print(f"voice_loader=legacy_fallback reason={type(optimized_error).__name__}: {optimized_error}", file=sys.stderr, flush=True)
+                model = Qwen3TTSModel.from_pretrained(
+                    str(model_path), device_map={"": "cpu"}, dtype=torch.float32,
+                    attn_implementation="sdpa",
+                )
     except Exception as error:
         print(json.dumps({
             "status": "error",
