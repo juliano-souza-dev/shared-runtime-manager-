@@ -383,6 +383,8 @@ Para criar um perfil:
 4. Informe o texto exato da gravação para preparar o prompt de clonagem.
 5. O Shared normaliza o áudio, prepara o perfil e o guarda em `SharedRuntime/voices/<voice-id>`.
 
+Para materiais em inglês, use preferencialmente uma gravação de referência também em inglês, com pronúncia clara, ritmo confortável e transcrição exata. O worker de clonagem usa amostragem ajustada para reduzir variações de pronúncia, recebe o texto completo em modo não-streaming e aplica uma desaceleração leve com preservação de pitch (taxa padrão `0.92`). A taxa pode ser ajustada entre `0.85` e `1.0` pela variável de ambiente `SRM_TTS_SPEECH_RATE`. O worker atualizado é sincronizado ao abrir a Biblioteca de vozes no Shared Runtime Manager.
+
 Os aplicativos registrados recebem os perfis disponíveis em seu `shared.config.json` central, no campo `shared.voices`. O campo `default` contém o identificador da voz padrão e `available` contém nomes amigáveis e caminhos absolutos para os perfis, runtime, modelo, Python e executor. Os arquivos de voz não são copiados para os projetos consumidores.
 
 A prévia de áudio é gerada pelo mesmo perfil salvo. A transcrição de referência deve corresponder ao áudio enviado; gravações próprias ou com autorização são as únicas que devem ser utilizadas.
