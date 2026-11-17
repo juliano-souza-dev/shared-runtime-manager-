@@ -58,21 +58,52 @@ def handle_request(model, profile_path: Path, request: dict, set_stage) -> dict:
             torch.save(prompt, prompt_path)
         if not isinstance(prompt, (list, tuple)) or not prompt:
             raise ValueError("O perfil de voz contém um prompt Qwen inválido ou vazio.")
+        text = str(request["text"]).strip()
+        language = str(request.get("language", "English")).strip() or "English"
+        # A terminal punctuation mark gives the model a clearer prosodic boundary
+        # when an Anki expression arrives as a bare phrase.
+        if text and text[-1] not in ".!?…":
+            text += "."
         set_stage("voice_generation")
         with contextlib.redirect_stdout(sys.stderr):
             wavs, sample_rate = model.generate_voice_clone(
-                text=str(request["text"]),
-                language=str(request.get("language", "Portuguese")),
+                text=text,
+                language=language,
                 voice_clone_prompt=prompt,
+                non_streaming_mode=True,
+                do_sample=True,
+                top_k=50,
+                top_p=0.95,
+                temperature=0.85,
+                repetition_penalty=1.08,
+                subtalker_dosample=True,
+                subtalker_top_k=50,
+                subtalker_top_p=0.95,
+                subtalker_temperature=0.85,
             )
+        set_stage("audio_pacing")
+        # Qwen3-TTS Base does not expose a native speech-rate argument. Use a
+        # pitch-preserving phase vocoder for a modest, configurable slowdown.
+        import librosa
+        import numpy as np
+        speech_rate = float(os.environ.get("SRM_TTS_SPEECH_RATE", "0.92"))
+        speech_rate = min(1.0, max(0.85, speech_rate))
+        waveform = np.asarray(wavs[0], dtype=np.float32)
+        if abs(speech_rate - 1.0) > 1e-3:
+            waveform = librosa.effects.time_stretch(y=waveform, rate=speech_rate)
+        # A short tail avoids the abrupt cutoff common in isolated flashcards.
+        tail = np.zeros(int(sample_rate * 0.14), dtype=waveform.dtype)
+        waveform = np.concatenate((waveform, tail))
         set_stage("audio_file_writing")
         output = Path(request["output_path"]).resolve()
         output.parent.mkdir(parents=True, exist_ok=True)
-        sf.write(str(output), wavs[0], sample_rate)
+        sf.write(str(output), waveform, sample_rate)
         return {
             "status": "completed",
             "output_path": str(output),
             "sample_rate": int(sample_rate),
+            "language": language,
+            "speech_rate": speech_rate,
         }
 
     raise ValueError("Unsupported operation: " + str(operation))
