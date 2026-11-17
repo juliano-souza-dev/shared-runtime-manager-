@@ -62,7 +62,7 @@ def handle_request(model, profile_path: Path, request: dict, set_stage) -> dict:
         language = str(request.get("language", "English")).strip() or "English"
         # A terminal punctuation mark gives the model a clearer prosodic boundary
         # when an Anki expression arrives as a bare phrase.
-        if text and text[-1] not in ".!?…":
+        if text and text[-1] not in ".!?…;:":
             text += "."
         set_stage("voice_generation")
         with contextlib.redirect_stdout(sys.stderr):
