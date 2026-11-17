@@ -19,8 +19,6 @@ def handle_request(model, profile_path: Path, request: dict, set_stage) -> dict:
             items = model.create_voice_clone_prompt(
                 ref_audio=str(Path(request["reference_audio"]).resolve()),
                 ref_text=str(request["reference_text"]),
-                # Speaker embedding only: avoid carrying room acoustics,
-                # reverberation, and recording coloration into generated cards.
                 x_vector_only_mode=False,
             )
         set_stage("voice_prompt_saving")
@@ -51,17 +49,16 @@ def handle_request(model, profile_path: Path, request: dict, set_stage) -> dict:
         prompt_path = profile_path / "voice_clone_prompt.pt"
         set_stage("voice_prompt_loading")
         prompt = torch.load(prompt_path, map_location="cpu", weights_only=False) if voice_mode == "voice_clone" else None
-        # Rebuild legacy profiles once using speaker-only conditioning. This
-        # prevents reference-room reverberation from being baked into future
-        # generations while preserving the existing profile and reference WAV.
+        # Rebuild profiles created with speaker-only conditioning using the
+        # full reference prompt, preserving the original reference WAV.
         mode_path = profile_path / "voice_clone_mode.txt"
         current_mode = mode_path.read_text(encoding="utf-8").strip() if mode_path.is_file() else ""
         if voice_mode == "voice_clone" and current_mode != "full_prompt":
             reference_audio = request.get("reference_audio") or str(profile_path / "reference.wav")
             reference_text = str(request.get("reference_text") or "").strip()
             # Some existing app integrations send only the profile directory.
-            # Keep their legacy prompt usable; newly created profiles already
-            # use speaker-only conditioning from prepare_voice.
+            # Keep an existing prompt usable when the integration does not
+            # provide the reference audio and transcript needed to rebuild it.
             if Path(reference_audio).is_file() and reference_text:
                 set_stage("reference_audio_encoding")
                 with contextlib.redirect_stdout(sys.stderr):
