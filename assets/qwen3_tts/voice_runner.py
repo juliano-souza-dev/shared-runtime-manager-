@@ -44,24 +44,20 @@ def handle_request(model, profile_path: Path, request: dict, set_stage) -> dict:
         if current_mode != "speaker_only":
             reference_audio = request.get("reference_audio") or str(profile_path / "reference.wav")
             reference_text = str(request.get("reference_text") or "").strip()
-            if not Path(reference_audio).is_file():
-                raise FileNotFoundError(
-                    "Este perfil não possui o áudio de referência necessário para atualizar o modo de clonagem."
-                )
-            if not reference_text:
-                raise ValueError(
-                    "Este perfil não possui a transcrição de referência necessária para atualizar o modo de clonagem."
-                )
-            set_stage("reference_audio_encoding")
-            with contextlib.redirect_stdout(sys.stderr):
-                prompt = model.create_voice_clone_prompt(
-                    ref_audio=str(Path(reference_audio).resolve()),
-                    ref_text=reference_text,
-                    x_vector_only_mode=True,
-                )
-            set_stage("voice_prompt_saving")
-            torch.save(prompt, prompt_path)
-            mode_path.write_text("speaker_only", encoding="utf-8")
+            # Some existing app integrations send only the profile directory.
+            # Keep their legacy prompt usable; newly created profiles already
+            # use speaker-only conditioning from prepare_voice.
+            if Path(reference_audio).is_file() and reference_text:
+                set_stage("reference_audio_encoding")
+                with contextlib.redirect_stdout(sys.stderr):
+                    prompt = model.create_voice_clone_prompt(
+                        ref_audio=str(Path(reference_audio).resolve()),
+                        ref_text=reference_text,
+                        x_vector_only_mode=True,
+                    )
+                set_stage("voice_prompt_saving")
+                torch.save(prompt, prompt_path)
+                mode_path.write_text("speaker_only", encoding="utf-8")
         if not isinstance(prompt, (list, tuple)) or not prompt:
             raise ValueError("O perfil de voz contém um prompt Qwen inválido ou vazio.")
         text = str(request["text"]).strip()
