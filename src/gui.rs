@@ -243,6 +243,30 @@ fn create_voice_profile(name: String, filename: String, audio_base64: String, re
     Ok(())
 }
 #[tauri::command]
+fn create_voice_design_profile(name: String, instruct: String) -> Result<(), String> {
+    if QUEUE_RUNNING.swap(true, Ordering::SeqCst) { return Err("Já existe um processamento em andamento. Aguarde antes de preparar outra voz.".to_owned()); }
+    dependency_queue::begin_operation();
+    if let Err(error) = write_voice_processing_status("running", "Preparando perfil Qwen3-TTS VoiceDesign...", None) {
+        QUEUE_RUNNING.store(false, Ordering::SeqCst); return Err(error);
+    }
+    std::thread::spawn(move || {
+        match shared_runtime_manager::voices::create_voice_design_profile(&name, &instruct) {
+            Ok(voice) => {
+                let voice_name = voice.get("name").and_then(serde_json::Value::as_str).unwrap_or(&name);
+                let result = serde_json::json!({"id":"Perfil VoiceDesign","status":"completed","message":format!("Perfil '{voice_name}' criado e publicado nos aplicativos registrados.")});
+                if write_voice_processing_status("completed", &format!("Perfil VoiceDesign '{voice_name}' criado."), Some(result)).is_ok() { let _ = dependency_queue::record_history(); }
+            }
+            Err(error) => {
+                let result = serde_json::json!({"id":"Perfil VoiceDesign","status":"error","message":format!("{error:#}")});
+                let _ = write_voice_processing_status("error", "Falha ao preparar perfil VoiceDesign.", Some(result));
+                let _ = dependency_queue::record_history();
+            }
+        }
+        QUEUE_RUNNING.store(false, Ordering::SeqCst);
+    });
+    Ok(())
+}
+#[tauri::command]
 fn set_default_voice(voice_id: String) -> Result<(), String> {
     shared_runtime_manager::voices::set_default(&voice_id).map_err(error_text)
 }
@@ -276,7 +300,7 @@ fn main() {
             dashboard_data, register_application, delete_application, synchronize_application, delete_shared_dependency,
             start_dependency_queue, dependency_queue_status, install_shared_resource, cancel_processing, restart_processing,
             provider_catalog, available_api_models, save_api_provider, authorize_api,
-            revoke_api, save_api_key, voice_library, create_voice_profile, set_default_voice, preview_voice
+            revoke_api, save_api_key, voice_library, create_voice_profile, create_voice_design_profile, set_default_voice, preview_voice
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Shared Runtime Manager");
