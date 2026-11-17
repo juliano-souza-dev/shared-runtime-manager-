@@ -300,7 +300,8 @@ pub fn create_profile(name: &str, filename: &str, audio_base64: &str, reference_
     let already_normalized = extension == "wav" && {
         let probe = silent_command(&ffprobe).args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate,channels", "-of", "csv=p=0"]).arg(&source).output();
         probe.ok().filter(|output| output.status.success()).map(|output| {
-            let parts: Vec<&str> = String::from_utf8_lossy(&output.stdout).trim().split(',').collect();
+            let probe_text = String::from_utf8_lossy(&output.stdout);
+            let parts: Vec<&str> = probe_text.trim().split(',').collect();
             parts.len() >= 2 && parts[0].trim() == "24000" && parts[1].trim() == "1"
         }).unwrap_or(false)
     };
