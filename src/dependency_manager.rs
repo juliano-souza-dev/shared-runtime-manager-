@@ -616,6 +616,7 @@ pub(crate) fn ensure_dependency(root: &Path, id: &str) -> Result<PathBuf> {
         "piper-tts" => ensure_piper_tts(root),
         "qwen3-tts" => ensure_qwen3_tts(root),
         "qwen3-tts-base-clone" => super::voices::ensure_runtime(root),
+        "qwen3-tts-voice-design" => super::voices::ensure_voice_design_runtime(root),
         other => bail!("Unknown dependency '{other}'. No installer is registered in the Shared catalog."),
     }
 }
