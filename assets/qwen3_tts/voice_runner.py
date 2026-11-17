@@ -21,15 +21,15 @@ def handle_request(model, profile_path: Path, request: dict, set_stage) -> dict:
                 ref_text=str(request["reference_text"]),
                 # Speaker embedding only: avoid carrying room acoustics,
                 # reverberation, and recording coloration into generated cards.
-                x_vector_only_mode=True,
+                x_vector_only_mode=False,
             )
         set_stage("voice_prompt_saving")
         torch.save(items, profile_path / "voice_clone_prompt.pt")
-        (profile_path / "voice_clone_mode.txt").write_text("speaker_only", encoding="utf-8")
+        (profile_path / "voice_clone_mode.txt").write_text("full_prompt", encoding="utf-8")
         return {
             "status": "completed",
             "profile_path": str(profile_path),
-            "voice_clone_mode": "speaker_only",
+            "voice_clone_mode": "full_prompt",
         }
 
     if operation == "prepare_voice_design":
@@ -56,7 +56,7 @@ def handle_request(model, profile_path: Path, request: dict, set_stage) -> dict:
         # generations while preserving the existing profile and reference WAV.
         mode_path = profile_path / "voice_clone_mode.txt"
         current_mode = mode_path.read_text(encoding="utf-8").strip() if mode_path.is_file() else ""
-        if voice_mode == "voice_clone" and current_mode != "speaker_only":
+        if voice_mode == "voice_clone" and current_mode != "full_prompt":
             reference_audio = request.get("reference_audio") or str(profile_path / "reference.wav")
             reference_text = str(request.get("reference_text") or "").strip()
             # Some existing app integrations send only the profile directory.
@@ -68,11 +68,11 @@ def handle_request(model, profile_path: Path, request: dict, set_stage) -> dict:
                     prompt = model.create_voice_clone_prompt(
                         ref_audio=str(Path(reference_audio).resolve()),
                         ref_text=reference_text,
-                        x_vector_only_mode=True,
+                        x_vector_only_mode=False,
                     )
                 set_stage("voice_prompt_saving")
                 torch.save(prompt, prompt_path)
-                mode_path.write_text("speaker_only", encoding="utf-8")
+                mode_path.write_text("full_prompt", encoding="utf-8")
         if voice_mode == "voice_clone" and (not isinstance(prompt, (list, tuple)) or not prompt):
             raise ValueError("O perfil de voz contém um prompt Qwen inválido ou vazio.")
         text = str(request["text"]).strip()
