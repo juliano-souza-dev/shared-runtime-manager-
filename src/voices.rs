@@ -353,7 +353,7 @@ pub fn preview(id: &str, text: &str) -> Result<String> {
         Path::new(&voice.profile_path), json!({
             "operation": "synthesize",
             "text": text,
-            "language": "Portuguese",
+            "language": "English",
             "output_path": output,
             "reference_audio": PathBuf::from(&voice.profile_path).join("reference.wav"),
             "reference_text": voice.reference_text
