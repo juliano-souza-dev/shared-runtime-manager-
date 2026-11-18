@@ -69,6 +69,7 @@ fn dependencies_for(config: &Value) -> Vec<String> {
 pub(crate) fn merge_example_dependencies(installation_path: &str, config: &mut Value) -> Result<()> {
     let project_root = PathBuf::from(installation_path);
     let Some(example_path) = [
+        project_root.join("libs-example.json"),
         project_root.join("shared-example.config.json"),
         project_root.join("shared.config.example.json"),
     ].into_iter().find(|path| path.is_file()) else {
@@ -111,7 +112,7 @@ pub(crate) fn merge_example_dependencies(installation_path: &str, config: &mut V
 pub fn enqueue_application(app_id: &str, installation_path: &str) -> Result<()> {
     let _guard = QUEUE_LOCK.lock().map_err(|_| anyhow::anyhow!("Dependency queue is busy"))?;
     let root = root()?;
-    let config_path = root.join("applications").join(app_id).join("shared.config.json");
+    let config_path = root.join("applications").join(app_id).join("libs.json");
     fs::create_dir_all(config_path.parent().expect("central config has a parent"))?;
     let mut config: Value = serde_json::from_slice(&fs::read(&config_path)
         .with_context(|| format!("Could not read {}", config_path.display()))?)?;
