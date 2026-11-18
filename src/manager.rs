@@ -224,7 +224,7 @@ pub fn register_app_at_path(app_id: &str, name: &str, installation_path: &str) -
 }
 
 fn application_config_path(shared_root: &Path, app_id: &str) -> PathBuf {
-    shared_root.join("applications").join(app_id).join("shared.config.json")
+    shared_root.join("applications").join(app_id).join("libs.json")
 }
 
 /// Refresh generated configuration files after the shared resource registry changes.
@@ -251,15 +251,16 @@ fn write_application_config(shared_root: &Path, app_id: &str, app: &Application)
             .with_context(|| format!("Could not read existing {}", config_path.display()))?;
         serde_json::from_slice(&bytes)
             .with_context(|| format!("Existing {} contains invalid JSON; refusing to overwrite it", config_path.display()))?
-    } else if app_root.join("shared.config.json").is_file() {
+    } else if app_root.join("libs.json").is_file() || app_root.join("shared.config.json").is_file() {
         // One-time migration path: preserve existing project-local settings when
         // moving an older registration into the central Shared Runtime directory.
-        let legacy_path = app_root.join("shared.config.json");
+        let legacy_path = if app_root.join("libs.json").is_file() { app_root.join("libs.json") } else { app_root.join("shared.config.json") };
         serde_json::from_slice(&fs::read(&legacy_path)
             .with_context(|| format!("Could not read legacy config {}", legacy_path.display()))?)
             .with_context(|| format!("Legacy config {} contains invalid JSON", legacy_path.display()))?
     } else {
         let template_path = [
+            app_root.join("libs-example.json"),
             app_root.join("shared-example.config.json"),
             app_root.join("shared.config.example.json"),
         ].into_iter().find(|path| path.is_file());
@@ -1041,7 +1042,7 @@ mod tests {
 
 
 /// Unregisters a project from Shared Runtime without deleting the project directory or user data.
-/// Only the generated shared.config.json is removed.
+/// Only the generated libs.json is removed.
 pub fn unregister_application(app_id: &str) -> Result<()> {
     validate_id(app_id)?;
     let base = ensure_layout()?;
